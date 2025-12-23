@@ -2,33 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
-const mockCandidates = [
-  {
-    id: 'cand-01',
-    keep: true,
-    kind: 'summary',
-    title: 'プロンプト改善まとめ',
-    domain: 'prompting',
-    tags: ['prompt', 'tips'],
-    confidence: 0.61,
-    body: 'プロンプトの粒度とシステムメッセージの分離で安定性が向上する。',
-    payload: { bullets: ['粒度調整', 'メッセージ分離'] },
-    stableKeySuggested: 'summary/prompt-tips',
-  },
-  {
-    id: 'cand-02',
-    keep: false,
-    kind: 'knowledge',
-    title: 'GraphQL のキャッシュ戦略',
-    domain: 'frontend',
-    tags: ['graphql', 'cache'],
-    confidence: 0.53,
-    body: 'クライアントサイドの正規化キャッシュは型安全なコード生成とセットで検討する。',
-    payload: { caution: '型更新時の破壊的変更に注意' },
-    stableKeySuggested: null,
-  },
-];
-
 const relOptions = ['born_from', 'related', 'contradicts', 'supersedes'];
 const kinds = ['knowledge', 'value', 'summary', 'model', 'decision', 'term', 'correction'];
 const sortOptions = [
@@ -249,7 +222,7 @@ function SearchView({ items, onOpenDetail, onCreateItem, onOpenImport, onFilters
   );
 }
 
-function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, isLoading }) {
+function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, onClone, onDelete, isLoading }) {
   const [showPayload, setShowPayload] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
 
@@ -287,8 +260,12 @@ function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, isLoading }) 
               モデル化
             </button>
           )}
-          <button className="ghost">複製</button>
-          <button className="ghost danger">削除</button>
+          <button className="ghost" onClick={onClone}>
+            複製
+          </button>
+          <button className="ghost danger" onClick={onDelete}>
+            削除
+          </button>
         </div>
       </div>
 
@@ -551,21 +528,167 @@ function LinkModal({ currentItem, items, onClose, onAdd }) {
 
 function ImportWizard({ onClose }) {
   const [rawJson, setRawJson] = useState('');
-  const [candidates, setCandidates] = useState(mockCandidates);
-  const [selectedId, setSelectedId] = useState(candidates[0]?.id);
+  const [candidates, setCandidates] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [jobId, setJobId] = useState(null);
+  const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [isCommitting, setIsCommitting] = useState(false);
 
-  const selected = candidates.find((c) => c.id === selectedId);
+  const selected = candidates.find((c) => c.candidateId === selectedId);
 
-  const updateCandidate = (updated) => {
-    setCandidates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  const mapCandidateFromApi = (cand) => {
+    const item = cand.item || {};
+    return {
+      candidateId: cand.candidate_id,
+      keep: cand.decision !== 'SKIP',
+      skipType: cand.skip_type || 'NONE',
+      reason: cand.reason || '',
+      item: {
+        id: item.item_id || item.id || '',
+        kind: item.kind || 'knowledge',
+        schemaId: item.schema_id || '',
+        title: item.title || '',
+        body: item.body || '',
+        domain: item.domain || '',
+        tags: normalizeTags(item.tags),
+        confidence: item.confidence ?? 0,
+        payload: item.payload || {},
+        payloadText: JSON.stringify(item.payload || {}, null, 2),
+        evidence: item.evidence || {},
+        stableKey: item.stable_key || '',
+        stableKeySuggested: item.stable_key_suggested || '',
+        links: item.links || [],
+      },
+    };
   };
 
-  const toggleKeep = (id) => {
-    setCandidates((prev) => prev.map((c) => (c.id === id ? { ...c, keep: !c.keep } : c)));
+  const loadJob = async (id) => {
+    setIsLoadingJob(true);
+    try {
+      const data = await fetchJson(`${API_BASE}/api/import/jobs/${id}`);
+      const mapped = (data.candidates || []).map((c) => mapCandidateFromApi(c));
+      setCandidates(mapped);
+      setSelectedId(mapped[0]?.candidateId || null);
+    } catch (err) {
+      console.error(err);
+      alert('インポートジョブの取得に失敗しました');
+    } finally {
+      setIsLoadingJob(false);
+    }
   };
 
-  const commit = () => {
-    alert('選択された候補をコミットしました（ダミー）');
+  const startImport = async () => {
+    if (!rawJson.trim()) {
+      alert('抽出 JSON を貼り付けてください');
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch (err) {
+      alert('抽出 JSON のパースに失敗しました');
+      return;
+    }
+    const extraction = parsed.extraction || parsed;
+    try {
+      const res = await fetchJson(`${API_BASE}/api/import/jobs`, {
+        method: 'POST',
+        body: JSON.stringify({ extraction }),
+      });
+      setJobId(res.job_id);
+      await loadJob(res.job_id);
+    } catch (err) {
+      console.error(err);
+      alert('インポートジョブの作成に失敗しました');
+    }
+  };
+
+  const persistCandidate = async (candidate) => {
+    if (!jobId) return;
+    let payloadObj = candidate.item.payload || {};
+    if (candidate.item.payloadText) {
+      try {
+        payloadObj = JSON.parse(candidate.item.payloadText || '{}');
+      } catch (err) {
+        alert('payload の JSON が正しくありません');
+        return;
+      }
+    }
+
+    const itemPayload = {
+      item_id: candidate.item.id || undefined,
+      stable_key: candidate.item.stableKey || null,
+      kind: candidate.item.kind,
+      schema_id: candidate.item.schemaId,
+      title: candidate.item.title,
+      body: candidate.item.body,
+      domain: candidate.item.domain || null,
+      tags: (candidate.item.tags || [])
+        .map((name) => ({ name: typeof name === 'string' ? name : name?.name || '' }))
+        .filter((t) => t.name),
+      evidence: candidate.item.evidence || {},
+      payload: payloadObj,
+      confidence: candidate.item.confidence ?? 0,
+      links: candidate.item.links || [],
+      stable_key_suggested: candidate.item.stableKeySuggested || undefined,
+    };
+
+    try {
+      await fetchJson(`${API_BASE}/api/import/jobs/${jobId}/candidates/${candidate.candidateId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          decision: candidate.keep ? 'KEEP' : 'SKIP',
+          skip_type: candidate.skipType || 'NONE',
+          reason: candidate.reason || '',
+          item: itemPayload,
+        }),
+      });
+      setCandidates((prev) =>
+        prev.map((c) =>
+          c.candidateId === candidate.candidateId
+            ? { ...candidate, item: { ...candidate.item, payload: payloadObj, payloadText: JSON.stringify(payloadObj, null, 2) } }
+            : c,
+        ),
+      );
+    } catch (err) {
+      console.error(err);
+      alert('候補の更新に失敗しました');
+    }
+  };
+
+  const updateCandidateItem = (candidateId, itemUpdate) => {
+    setCandidates((prev) => {
+      const next = prev.map((c) => (c.candidateId === candidateId ? { ...c, item: { ...c.item, ...itemUpdate } } : c));
+      const updated = next.find((c) => c.candidateId === candidateId);
+      if (updated) persistCandidate(updated);
+      return next;
+    });
+  };
+
+  const toggleKeep = (candidateId) => {
+    setCandidates((prev) => {
+      const next = prev.map((c) => (c.candidateId === candidateId ? { ...c, keep: !c.keep } : c));
+      const updated = next.find((c) => c.candidateId === candidateId);
+      if (updated) persistCandidate(updated);
+      return next;
+    });
+  };
+
+  const commit = async () => {
+    if (!jobId) {
+      alert('先に抽出 JSON を読み込んでください');
+      return;
+    }
+    setIsCommitting(true);
+    try {
+      const res = await fetchJson(`${API_BASE}/api/import/jobs/${jobId}/commit`, { method: 'POST' });
+      alert(`コミット完了: inserted ${res.inserted}, skipped ${res.skipped}, links ${res.links_created}`);
+    } catch (err) {
+      console.error(err);
+      alert('コミットに失敗しました');
+    } finally {
+      setIsCommitting(false);
+    }
   };
 
   return (
@@ -590,23 +713,29 @@ function ImportWizard({ onClose }) {
             onChange={(e) => setRawJson(e.target.value)}
           />
           <div className="muted small">※ ファイル読み込みは未実装（MVP）。</div>
+          <div className="actions">
+            <button className="primary" onClick={startImport}>JSON を読み込む</button>
+            {isLoadingJob && <span className="muted small">読み込み中...</span>}
+          </div>
+
+          {jobId && <div className="muted small">job_id: {jobId}</div>}
 
           <h4>candidates</h4>
           <div className="candidate-list">
             {candidates.map((c) => (
-              <div key={c.id} className={`candidate-card ${selectedId === c.id ? 'active' : ''}`}>
+              <div key={c.candidateId} className={`candidate-card ${selectedId === c.candidateId ? 'active' : ''}`}>
                 <div className="candidate-header">
                   <div className="left">
-                    <button className={`pill-toggle ${c.keep ? 'keep' : 'skip'}`} onClick={() => toggleKeep(c.id)}>
+                    <button className={`pill-toggle ${c.keep ? 'keep' : 'skip'}`} onClick={() => toggleKeep(c.candidateId)}>
                       {c.keep ? '✅ KEEP' : '❌ SKIP'}
                     </button>
-                    <span className="badge subtle">{c.kind}</span>
-                    <strong>{c.title}</strong>
+                    <span className="badge subtle">{c.item.kind}</span>
+                    <strong>{c.item.title}</strong>
                   </div>
-                  <span className="muted small">confidence {(c.confidence * 100).toFixed(0)}%</span>
+                  <span className="muted small">confidence {(c.item.confidence * 100).toFixed(0)}%</span>
                 </div>
-                <p className="muted small">{c.body}</p>
-                <button className="ghost tiny" onClick={() => setSelectedId(c.id)}>
+                <p className="muted small">{c.item.body}</p>
+                <button className="ghost tiny" onClick={() => setSelectedId(c.candidateId)}>
                   選択して編集
                 </button>
               </div>
@@ -617,12 +746,16 @@ function ImportWizard({ onClose }) {
         <div className="import-right">
           <h4>候補編集</h4>
           {selected ? (
-            <ItemForm value={selected} onChange={(val) => updateCandidate({ ...selected, ...val })} stableKeySuggested={selected.stableKeySuggested} />
+            <ItemForm
+              value={selected.item}
+              onChange={(val) => updateCandidateItem(selected.candidateId, val)}
+              stableKeySuggested={selected.item.stableKeySuggested}
+            />
           ) : (
             <p className="muted">候補を選択してください。</p>
           )}
           <div className="actions">
-            <button className="primary" onClick={commit}>
+            <button className="primary" onClick={commit} disabled={!jobId || isCommitting}>
               commit
             </button>
             <button className="ghost" onClick={onClose}>
@@ -801,21 +934,51 @@ export default function App() {
     setView('edit');
   };
 
-  const addLink = ({ rel, targetId }) => {
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== selectedItem.id) return item;
-        const existing = item.links?.[rel] || [];
-        return {
-          ...item,
-          links: {
-            ...item.links,
-            [rel]: existing.includes(targetId) ? existing : [...existing, targetId],
-          },
-        };
-      }),
-    );
-    setShowLinkModal(false);
+  const addLink = async ({ rel, targetId }) => {
+    if (!selectedItem) return;
+    try {
+      await fetchJson(`${API_BASE}/api/items/${selectedItem.id}/links`, {
+        method: 'POST',
+        body: JSON.stringify({ rel, target_item_id: targetId }),
+      });
+      const detail = await loadItemDetail(selectedItem.id);
+      setSelectedItem(detail);
+      refreshSearch();
+      setShowLinkModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('リンクの追加に失敗しました');
+    }
+  };
+
+  const handleClone = async () => {
+    if (!selectedItem) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const cloneDraft = { ...selectedItem, id: null, stableKey: '', createdAt: today, updatedAt: today };
+      const itemId = await persistItem(cloneDraft);
+      const detail = await loadItemDetail(itemId);
+      setSelectedItem(detail);
+      setView('detail');
+      refreshSearch();
+    } catch (err) {
+      console.error(err);
+      alert('複製に失敗しました');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedItem) return;
+    if (!window.confirm('本当に削除しますか？')) return;
+    try {
+      await fetchJson(`${API_BASE}/api/items/${selectedItem.id}`, { method: 'DELETE' });
+      setSelectedItem(null);
+      setView('search');
+      refreshSearch();
+    } catch (err) {
+      console.error(err);
+      alert('削除に失敗しました');
+    }
   };
 
   return (
@@ -842,6 +1005,8 @@ export default function App() {
           onEdit={() => setView('edit')}
           onAddLink={() => setShowLinkModal(true)}
           onModelize={handleModelize}
+          onClone={handleClone}
+          onDelete={handleDelete}
           isLoading={isLoadingDetail}
         />
       )}
