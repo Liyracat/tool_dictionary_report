@@ -354,6 +354,10 @@ textarea {
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.2);
 }
 
+.modal.wide {
+  width: min(840px, 100%);
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -396,6 +400,55 @@ textarea {
   background: #f8fafc;
 }
 
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.comparison-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #f8fafc;
+}
+
+.comparison-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.comparison-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.comparison-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.comparison-field .label {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.strong-title {
+  margin: 0.35rem 0;
+  font-weight: 700;
+}
+
+.small-scroll {
+  max-height: 140px;
+  overflow: auto;
+}
+
 .import-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -423,6 +476,12 @@ textarea {
 .candidate-card.active {
   border-color: #c7d2fe;
   background: #eef2ff;
+}
+
+.candidate-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .candidate-header {

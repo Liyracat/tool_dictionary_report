@@ -548,6 +548,66 @@ function LinkModal({ currentItem, items, onClose, onAdd }) {
   );
 }
 
+function ComparisonColumn({ label, item }) {
+  if (!item) return null;
+  return (
+    <div className="comparison-card">
+      <div className="comparison-title">
+        <h4>{label}</h4>
+        <div className="comparison-meta">
+          <span className={`badge kind-${item.kind}`}>{item.kind}</span>
+          <span className="muted small">{item.schemaId}</span>
+        </div>
+      </div>
+      <p className="strong-title">{item.title || '（titleなし）'}</p>
+      <div className="comparison-field">
+        <span className="label">stable_key</span>
+        <code>{item.stableKey || 'なし'}</code>
+      </div>
+      <div className="comparison-field">
+        <span className="label">domain</span>
+        <span>{item.domain || 'なし'}</span>
+      </div>
+      <div className="comparison-field">
+        <span className="label">tags</span>
+        <div className="tag-row">
+          {item.tags?.length ? item.tags.map((t) => <TagPill key={t} label={t} />) : <span className="muted small">なし</span>}
+        </div>
+      </div>
+      <div className="comparison-field">
+        <span className="label">body</span>
+        <div className="preview small-scroll">{item.body || 'なし'}</div>
+      </div>
+      <div className="comparison-field">
+        <span className="label">payload</span>
+        <pre className="preview small-scroll">{JSON.stringify(item.payload || {}, null, 2)}</pre>
+      </div>
+    </div>
+  );
+}
+
+function ComparisonDialog({ candidate, existing, onClose }) {
+  if (!candidate || !existing) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal wide">
+        <div className="modal-header">
+          <h3>stable_key 重複確認</h3>
+          <button className="ghost" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <p className="muted small">既存の Item とインポート候補を横並びで確認します。</p>
+        <div className="comparison-grid">
+          <ComparisonColumn label="新規（候補）" item={candidate.item} />
+          <ComparisonColumn label="既存 (DB)" item={existing} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ImportWizard({ onClose }) {
   const [rawJson, setRawJson] = useState('');
   const [candidates, setCandidates] = useState([]);
@@ -555,6 +615,8 @@ function ImportWizard({ onClose }) {
   const [jobId, setJobId] = useState(null);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [stableKeyMatches, setStableKeyMatches] = useState({});
+  const [comparison, setComparison] = useState(null);
 
   const selected = candidates.find((c) => c.candidateId === selectedId);
 
@@ -586,9 +648,17 @@ function ImportWizard({ onClose }) {
 
   const loadJob = async (id) => {
     setIsLoadingJob(true);
+    setComparison(null);
+    setStableKeyMatches({});
     try {
       const data = await fetchJson(`${API_BASE}/api/import/jobs/${id}`);
       const mapped = (data.candidates || []).map((c) => mapCandidateFromApi(c));
+      const matches = {};
+      Object.entries(data.stable_key_matches || {}).forEach(([key, raw]) => {
+        const display = toDisplayItem(raw);
+        if (display) matches[key] = display;
+      });
+      setStableKeyMatches(matches);
       setCandidates(mapped);
       setSelectedId(mapped[0]?.candidateId || null);
     } catch (err) {
@@ -704,7 +774,9 @@ function ImportWizard({ onClose }) {
     setIsCommitting(true);
     try {
       const res = await fetchJson(`${API_BASE}/api/import/jobs/${jobId}/commit`, { method: 'POST' });
-      alert(`コミット完了: inserted ${res.inserted}, skipped ${res.skipped}, links ${res.links_created}`);
+      alert(
+        `コミット完了: inserted ${res.inserted}, updated ${res.updated}, skipped ${res.skipped}, links ${res.links_created}`,
+      );
     } catch (err) {
       console.error(err);
       showApiError(err, 'コミットに失敗しました');
@@ -714,79 +786,100 @@ function ImportWizard({ onClose }) {
   };
 
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <div>
-          <h2>Import Wizard</h2>
-          <p className="muted small">抽出 JSON の貼り付け、候補レビュー、コミットまでを行います。</p>
-        </div>
-        <button className="ghost" onClick={onClose}>
-          閉じる
-        </button>
-      </div>
-
-      <div className="import-layout">
-        <div className="import-left">
-          <h4>抽出 JSON</h4>
-          <textarea
-            rows={6}
-            placeholder="抽出 JSON を貼り付け、またはファイルから読み込みます。"
-            value={rawJson}
-            onChange={(e) => setRawJson(e.target.value)}
-          />
-          <div className="muted small">※ ファイル読み込みは未実装（MVP）。</div>
-          <div className="actions">
-            <button className="primary" onClick={startImport}>JSON を読み込む</button>
-            {isLoadingJob && <span className="muted small">読み込み中...</span>}
+    <>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Import Wizard</h2>
+            <p className="muted small">抽出 JSON の貼り付け、候補レビュー、コミットまでを行います。</p>
           </div>
-
-          {jobId && <div className="muted small">job_id: {jobId}</div>}
-
-          <h4>candidates</h4>
-          <div className="candidate-list">
-            {candidates.map((c) => (
-              <div key={c.candidateId} className={`candidate-card ${selectedId === c.candidateId ? 'active' : ''}`}>
-                <div className="candidate-header">
-                  <div className="left">
-                    <button className={`pill-toggle ${c.keep ? 'keep' : 'skip'}`} onClick={() => toggleKeep(c.candidateId)}>
-                      {c.keep ? '✅ KEEP' : '❌ SKIP'}
-                    </button>
-                    <span className="badge subtle">{c.item.kind}</span>
-                    <strong>{c.item.title}</strong>
-                  </div>
-                  <span className="muted small">confidence {(c.item.confidence * 100).toFixed(0)}%</span>
-                </div>
-                <p className="muted small">{c.item.body}</p>
-                <button className="ghost tiny" onClick={() => setSelectedId(c.candidateId)}>
-                  選択して編集
-                </button>
-              </div>
-            ))}
-          </div>
+          <button className="ghost" onClick={onClose}>
+            閉じる
+          </button>
         </div>
 
-        <div className="import-right">
-          <h4>候補編集</h4>
-          {selected ? (
-            <ItemForm
-              value={selected.item}
-              onChange={(val) => updateCandidateItem(selected.candidateId, val)}
-              stableKeySuggested={selected.item.stableKeySuggested}
+        <div className="import-layout">
+          <div className="import-left">
+            <h4>抽出 JSON</h4>
+            <textarea
+              rows={6}
+              placeholder="抽出 JSON を貼り付け、またはファイルから読み込みます。"
+              value={rawJson}
+              onChange={(e) => setRawJson(e.target.value)}
             />
-          ) : (
-            <p className="muted">候補を選択してください。</p>
-          )}
-          <div className="actions">
-            <button className="primary" onClick={commit} disabled={!jobId || isCommitting}>
-              commit
-            </button>
-            <button className="ghost" onClick={onClose}>
-              破棄して閉じる
-            </button>
+            <div className="muted small">※ ファイル読み込みは未実装（MVP）。</div>
+            <div className="actions">
+              <button className="primary" onClick={startImport}>JSON を読み込む</button>
+              {isLoadingJob && <span className="muted small">読み込み中...</span>}
+            </div>
+
+            {jobId && <div className="muted small">job_id: {jobId}</div>}
+
+            <h4>candidates</h4>
+            <div className="candidate-list">
+              {candidates.map((c) => (
+                <div key={c.candidateId} className={`candidate-card ${selectedId === c.candidateId ? 'active' : ''}`}>
+                  <div className="candidate-header">
+                    <div className="left">
+                      <button className={`pill-toggle ${c.keep ? 'keep' : 'skip'}`} onClick={() => toggleKeep(c.candidateId)}>
+                        {c.keep ? '✅ KEEP' : '❌ SKIP'}
+                      </button>
+                      <span className="badge subtle">{c.item.kind}</span>
+                      <strong>{c.item.title}</strong>
+                    </div>
+                    <span className="muted small">confidence {(c.item.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                  <p className="muted small">{c.item.body}</p>
+                  <div className="candidate-actions">
+                    <button className="ghost tiny" onClick={() => setSelectedId(c.candidateId)}>
+                      選択して編集
+                    </button>
+                    {c.item.stableKey && stableKeyMatches[c.item.stableKey] && (
+                      <button
+                        className="ghost tiny"
+                        onClick={() =>
+                          setComparison({ candidate: c, existing: stableKeyMatches[c.item.stableKey] })
+                        }
+                      >
+                        DBと比較
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="import-right">
+            <h4>候補編集</h4>
+            {selected ? (
+              <ItemForm
+                value={selected.item}
+                onChange={(val) => updateCandidateItem(selected.candidateId, val)}
+                stableKeySuggested={selected.item.stableKeySuggested}
+              />
+            ) : (
+              <p className="muted">候補を選択してください。</p>
+            )}
+            <div className="actions">
+              <button className="primary" onClick={commit} disabled={!jobId || isCommitting}>
+                commit
+              </button>
+              <button className="ghost" onClick={onClose}>
+                破棄して閉じる
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      {comparison && (
+        <ComparisonDialog
+          candidate={comparison.candidate}
+          existing={comparison.existing}
+          onClose={() => setComparison(null)}
+        />
+      )}
+    </>
   );
 }
 
