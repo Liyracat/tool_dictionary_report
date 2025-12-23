@@ -348,9 +348,9 @@ class SearchRepo:
                 "FROM items_fts f JOIN items i ON i.item_id = f.item_id "
                 f"{join} "
             )
-            if where_clauses:␊
+            if where_clauses:
                 sql += "WHERE f MATCH ? AND " + " AND ".join(where_clauses) + " "
-            else:␊
+            else:
                 sql += "WHERE f MATCH ? "
             sql += f"{order_clause} LIMIT ? OFFSET ?"
             params = [match_query, *params, limit, offset]
