@@ -78,9 +78,31 @@ async function fetchJson(url, options = {}) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text || '{}');
+      detail = parsed.detail || parsed.message || text;
+    } catch (_) {
+      // noop
+    }
+    const error = new Error(detail || `${res.status}: ${text}`);
+    error.detail = detail;
+    error.status = res.status;
+    throw error;
   }
   return res.json();
+}
+
+function showApiError(err, fallbackMessage) {
+  if (err?.detail) {
+    alert(err.detail);
+    return;
+  }
+  if (err?.message) {
+    alert(err.message);
+    return;
+  }
+  alert(fallbackMessage || 'エラーが発生しました');
 }
 
 function TagPill({ label }) {
@@ -571,7 +593,7 @@ function ImportWizard({ onClose }) {
       setSelectedId(mapped[0]?.candidateId || null);
     } catch (err) {
       console.error(err);
-      alert('インポートジョブの取得に失敗しました');
+      showApiError(err, 'インポートジョブの取得に失敗しました');
     } finally {
       setIsLoadingJob(false);
     }
@@ -599,7 +621,7 @@ function ImportWizard({ onClose }) {
       await loadJob(res.job_id);
     } catch (err) {
       console.error(err);
-      alert('インポートジョブの作成に失敗しました');
+      showApiError(err, 'インポートジョブの作成に失敗しました');
     }
   };
 
@@ -652,7 +674,7 @@ function ImportWizard({ onClose }) {
       );
     } catch (err) {
       console.error(err);
-      alert('候補の更新に失敗しました');
+      showApiError(err, '候補の更新に失敗しました');
     }
   };
 
@@ -685,7 +707,7 @@ function ImportWizard({ onClose }) {
       alert(`コミット完了: inserted ${res.inserted}, skipped ${res.skipped}, links ${res.links_created}`);
     } catch (err) {
       console.error(err);
-      alert('コミットに失敗しました');
+      showApiError(err, 'コミットに失敗しました');
     } finally {
       setIsCommitting(false);
     }
@@ -801,7 +823,7 @@ export default function App() {
         setItems((data.items || []).map((item) => toDisplayItem(item)).filter(Boolean));
       } catch (err) {
         console.error(err);
-        alert('検索結果の取得に失敗しました');
+        showApiError(err, '検索結果の取得に失敗しました');
       } finally {
         setIsLoadingSearch(false);
       }
@@ -847,7 +869,7 @@ export default function App() {
       setSelectedItem(full);
     } catch (err) {
       console.error(err);
-      alert('詳細の取得に失敗しました');
+      showApiError(err, '詳細の取得に失敗しました');
     } finally {
       setIsLoadingDetail(false);
     }
@@ -877,6 +899,9 @@ export default function App() {
 
   const persistItem = async (draft) => {
     const payload = toRequestPayload(draft);
+    if (!draft.id) {
+      payload.source_type = 'manual';
+    }
     if (draft.id) {
       await fetchJson(`${API_BASE}/api/items/${draft.id}`,
         { method: 'PUT', body: JSON.stringify(payload) });
@@ -899,7 +924,7 @@ export default function App() {
       refreshSearch();
     } catch (err) {
       console.error(err);
-      alert('保存に失敗しました');
+      showApiError(err, '保存に失敗しました');
     }
   };
 
@@ -912,7 +937,7 @@ export default function App() {
       refreshSearch();
     } catch (err) {
       console.error(err);
-      alert('保存に失敗しました');
+      showApiError(err, '保存に失敗しました');
     }
   };
 
@@ -947,7 +972,7 @@ export default function App() {
       setShowLinkModal(false);
     } catch (err) {
       console.error(err);
-      alert('リンクの追加に失敗しました');
+      showApiError(err, 'リンクの追加に失敗しました');
     }
   };
 
@@ -961,9 +986,10 @@ export default function App() {
       setSelectedItem(detail);
       setView('detail');
       refreshSearch();
+      alert('複製しました');
     } catch (err) {
       console.error(err);
-      alert('複製に失敗しました');
+      showApiError(err, '複製に失敗しました');
     }
   };
 
@@ -977,7 +1003,7 @@ export default function App() {
       refreshSearch();
     } catch (err) {
       console.error(err);
-      alert('削除に失敗しました');
+      showApiError(err, '削除に失敗しました');
     }
   };
 
