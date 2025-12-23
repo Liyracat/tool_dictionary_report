@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 
+APP_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = APP_DIR.parent
+PROJECT_ROOT = BACKEND_DIR.parent
+
+
 class Database:
     """Simple SQLite helper used across the application."""
 
@@ -58,9 +63,26 @@ def row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
 
 
 def default_schema_path() -> Path:
-    here = Path(__file__).resolve().parent.parent
-    return here / "schema.sql"
+    """Return a schema path that works regardless of the working directory.
+
+    Preference order:
+    1. `SCHEMA_PATH` environment variable when provided.
+    2. Project root `schema.sql`.
+    3. A fallback next to the backend package for local overrides.
+    """
+
+    if schema_env := os.environ.get("SCHEMA_PATH"):
+        return Path(schema_env)
+
+    candidates = [PROJECT_ROOT / "schema.sql", BACKEND_DIR / "schema.sql"]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Even if the file is missing, return the expected default path for clearer errors.
+    return candidates[0]
 
 
 def ensure_schema(db: Database, schema_path: Optional[os.PathLike[str] | str] = None) -> bool:
+    """Create the database from the schema if it is not present."""
     return db.initialize(schema_path or default_schema_path())

@@ -3,24 +3,33 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from .db import Database, ensure_schema
+from .db import Database, ensure_schema, default_schema_path
 from .repositories import ImportRepo, ItemsRepo, LinksRepo, SearchRepo, TagsRepo
 
-from pathlib import Path
 
-print("CWD:", os.getcwd())
-print("EXPECT DB:", str(Path("db.sqlite").resolve()))
+APP_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = APP_DIR.parent
+PROJECT_ROOT = BACKEND_DIR.parent
+
+
+def default_db_path() -> Path:
+    """Determine the DB path from env or fall back to project storage."""
+
+    if db_env := os.environ.get("DB_PATH"):
+        return Path(db_env)
+    return PROJECT_ROOT / "data" / "app.db"
 
 def create_app(
     *, db_path: Optional[str] = None, schema_path: Optional[str] = None
 ) -> FastAPI:
-    database_path = db_path or os.environ.get("DB_PATH", "db.sqlite")
-    schema_file = schema_path or os.environ.get("SCHEMA_PATH", "schema.sql")
+    database_path = Path(db_path) if db_path else default_db_path()
+    schema_file = Path(schema_path) if schema_path else default_schema_path()
 
     db = Database(database_path)
     ensure_schema(db, schema_file)

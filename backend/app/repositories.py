@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from .db import Database, row_to_dict
 
 
-class ItemsRepo:␊
+class ItemsRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
@@ -22,9 +22,9 @@ class ItemsRepo:␊
                 (chunk_id, thread_id, source_type, time_start, time_end, digest, locator_json, hint),
             )
 
-    def create_item(␊
-        self,␊
-        *,␊
+    def create_item(
+        self,
+        *,
         item_id: str,
         chunk_id: str,
         kind: str,
@@ -35,8 +35,8 @@ class ItemsRepo:␊
         domain: Optional[str] = None,
         confidence: float = 0.0,
         status: str = "active",
-        evidence_basis: Optional[str] = None,␊
-    ) -> None:␊
+        evidence_basis: Optional[str] = None,
+    ) -> None:
         with self.db.transaction() as cur:
             cur.execute(
                 """
@@ -94,9 +94,9 @@ class ItemsRepo:␊
                 ),
             )
 
-    def add_payload(self, item_id: str, payload: Dict[str, Any]) -> None:␊
-        with self.db.transaction() as cur:␊
-            cur.execute(␊
+    def add_payload(self, item_id: str, payload: Dict[str, Any]) -> None:
+        with self.db.transaction() as cur:
+            cur.execute(
                 """
                 INSERT OR REPLACE INTO item_payloads(item_id, payload_json)
                 VALUES (?, ?)
@@ -111,10 +111,10 @@ class ItemsRepo:␊
             ).fetchone()
             return json.loads(row["payload_json"]) if row else {}
 
-    def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:␊
-        with self.db.connect() as conn:␊
-            row = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()␊
-            return row_to_dict(row) if row else None␊
+    def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
+            return row_to_dict(row) if row else None
 
     def list_items(self) -> List[Dict[str, Any]]:
         with self.db.connect() as conn:
@@ -161,7 +161,7 @@ class ItemsRepo:␊
             return bool(row)
 
 
-class TagsRepo:␊
+class TagsRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
@@ -190,8 +190,8 @@ class TagsRepo:␊
             return int(existing["tag_id"])
         return self.create_tag(tag.get("name"), path=tag.get("path"))
 
-    def add_tag_to_item(self, item_id: str, tag_id: int, confidence: float = 0.0) -> None:␊
-        with self.db.transaction() as cur:␊
+    def add_tag_to_item(self, item_id: str, tag_id: int, confidence: float = 0.0) -> None:
+        with self.db.transaction() as cur:
             cur.execute(
                 """
                 INSERT OR REPLACE INTO item_tags(item_id, tag_id, confidence)
@@ -238,7 +238,7 @@ class TagsRepo:␊
             return [r["name"] for r in rows]
 
 
-class LinksRepo:␊
+class LinksRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
@@ -286,7 +286,7 @@ class LinksRepo:␊
             cur.execute("DELETE FROM item_links WHERE link_id = ?", (link_id,))
 
 
-class SearchRepo:␊
+class SearchRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
