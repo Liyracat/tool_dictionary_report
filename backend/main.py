@@ -1,22 +1,11 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-app = FastAPI(title="Tool Dictionary Report API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.main import create_app
 
 
-@app.get("/")
-async def read_root() -> dict[str, str]:
-    return {"status": "ok"}
+app = create_app()
 
 
-@app.get("/health")
-async def healthcheck() -> dict[str, str]:
-    return {"status": "healthy"}
+if __name__ == "__main__":  # pragma: no cover - manual run helper
+    # Running uvicorn would normally go here, but the local shim keeps the dependency light.
+    import sys
+
+    print("Run with a WSGI/ASGI server to serve the app", file=sys.stderr)

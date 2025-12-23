@@ -73,9 +73,9 @@ def test_search_repository_uses_fts(tmp_path: Path) -> None:
     create_sample_item(db, item_id="item-search")
 
     search_repo = SearchRepo(db)
-    results = search_repo.search_items("example")
-
-    assert results and results[0]["item_id"] == "item-search"
+        results = search_repo.search_items(query="example")
+␊
+    assert results["items"] and results["items"][0]["item_id"] == "item-search"
 
 
 def test_import_repository(tmp_path: Path) -> None:
