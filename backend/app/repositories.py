@@ -71,13 +71,15 @@ class ItemsRepo:
         confidence: float = 0.0,
         status: str = "active",
         evidence_basis: Optional[str] = None,
+        chunk_id: Optional[str] = None,
     ) -> None:
         with self.db.transaction() as cur:
             cur.execute(
                 """
                 UPDATE items
                 SET kind = ?, schema_id = ?, title = ?, body = ?, stable_key = ?, domain = ?,
-                    confidence = ?, status = ?, evidence_basis = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                    confidence = ?, status = ?, evidence_basis = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                    chunk_id = COALESCE(?, chunk_id)
                 WHERE item_id = ?
                 """,
                 (
@@ -90,6 +92,7 @@ class ItemsRepo:
                     confidence,
                     status,
                     evidence_basis,
+                    chunk_id,
                     item_id,
                 ),
             )
@@ -131,34 +134,68 @@ class ItemsRepo:
                 (item_id,),
             )
 
-    def ensure_chunk_for_item(self, chunk_id: str, source: Dict[str, Any]) -> None:
+    def ensure_chunk_for_item(self, chunk_id: str, source: Dict[str, Any]) -> str:
         with self.db.transaction() as cur:
             thread_id = source.get("thread_id") or source.get("source", {}).get("thread_id") or "manual"
             digest = source.get("digest") or f"digest-{chunk_id}"
             locator = source.get("locator") or source.get("locator_json") or {}
             source_type = source.get("source_type", "chatgpt_export_json")
-            cur.execute(
-                """
-                INSERT OR IGNORE INTO chunks(chunk_id, thread_id, source_type, time_start, time_end, digest, locator_json, hint)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    chunk_id,
-                    thread_id,
-                    source_type,
-                    source.get("time_start")
-                    or source.get("time_range", {}).get("start"),
-                    source.get("time_end") or source.get("time_range", {}).get("end"),
-                    digest,
-                    json.dumps(locator),
-                    source.get("hint"),
-                ),
-            )
+            time_start = source.get("time_start") or source.get("time_range", {}).get("start")
+            time_end = source.get("time_end") or source.get("time_range", {}).get("end")
+
+            existing = cur.execute(
+                "SELECT * FROM chunks WHERE digest = ?",
+                (digest,),
+            ).fetchone()
+
+            if existing:
+                chunk_id = existing["chunk_id"]
+                cur.execute(
+                    """
+                    UPDATE chunks
+                    SET thread_id = ?, source_type = ?, time_start = ?, time_end = ?, locator_json = ?, hint = ?
+                    WHERE chunk_id = ?
+                    """,
+                    (thread_id, source_type, time_start, time_end, json.dumps(locator), source.get("hint"), chunk_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO chunks(chunk_id, thread_id, source_type, time_start, time_end, digest, locator_json, hint)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chunk_id,
+                        thread_id,
+                        source_type,
+                        time_start,
+                        time_end,
+                        digest,
+                        json.dumps(locator),
+                        source.get("hint"),
+                    ),
+                )
+
+            return chunk_id
 
     def has_chunk_with_digest(self, digest: str) -> bool:
         with self.db.connect() as conn:
             row = conn.execute("SELECT 1 FROM chunks WHERE digest = ?", (digest,)).fetchone()
             return bool(row)
+
+    def find_item_by_stable_key(self, stable_key: str, kind: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            if kind:
+                row = conn.execute(
+                    "SELECT * FROM items WHERE stable_key = ? AND kind = ? ORDER BY updated_at DESC LIMIT 1",
+                    (stable_key, kind),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM items WHERE stable_key = ? ORDER BY updated_at DESC LIMIT 1",
+                    (stable_key,),
+                ).fetchone()
+            return row_to_dict(row) if row else None
 
 
 class TagsRepo:

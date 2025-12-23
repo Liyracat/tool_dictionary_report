@@ -86,11 +86,11 @@ def create_app(
     def create_item(
         payload: Dict[str, Any],
         items: ItemsRepo = Depends(get_items_repo),
-        tags: TagsRepo = Depends(get_tags_repo),
+       tags: TagsRepo = Depends(get_tags_repo),
     ) -> Dict[str, str]:
         item_id = f"item-{uuid.uuid4()}"
         chunk_id = payload.get("chunk_id") or f"chunk-{uuid.uuid4()}"
-        items.ensure_chunk_for_item(chunk_id, payload)
+        chunk_id = items.ensure_chunk_for_item(chunk_id, payload)
 
         items.create_item(
             item_id=item_id,
@@ -246,24 +246,42 @@ def create_app(
         return {"job_id": job_id}
 
     @app.get("/api/import/jobs/{job_id}")
-    def get_import_job(job_id: str, repo: ImportRepo = Depends(get_import_repo)) -> Dict[str, Any]:
+    def get_import_job(
+        job_id: str,
+        repo: ImportRepo = Depends(get_import_repo),
+        items_repo: ItemsRepo = Depends(get_items_repo),
+        tags_repo: TagsRepo = Depends(get_tags_repo),
+    ) -> Dict[str, Any]:
         job = repo.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="job_not_found")
         candidates = repo.list_candidates(job_id)
         parsed_candidates = []
+        stable_key_matches: Dict[str, Any] = {}
         for cand in candidates:
+            item_payload = json.loads(cand["item_json"])
             parsed_candidates.append(
                 {
                     "candidate_id": cand["candidate_id"],
                     "decision": cand["decision"],
                     "skip_type": cand["skip_type"],
                     "reason": cand["reason"],
-                    "item": json.loads(cand["item_json"]),
+                    "item": item_payload,
                 }
             )
+            stable_key = item_payload.get("stable_key")
+            if stable_key and stable_key not in stable_key_matches:
+                existing = items_repo.find_item_by_stable_key(
+                    stable_key, kind=item_payload.get("kind")
+                )
+                if existing:
+                    stable_key_matches[stable_key] = {
+                        **existing,
+                        "payload": items_repo.get_payload(existing["item_id"]),
+                        "tags": tags_repo.get_tags_for_item(existing["item_id"]),
+                    }
         job["source"] = json.loads(job.get("source_json", "{}"))
-        return {"job": job, "candidates": parsed_candidates}
+        return {"job": job, "candidates": parsed_candidates, "stable_key_matches": stable_key_matches}
 
     @app.put("/api/import/jobs/{job_id}/candidates/{candidate_id}")
     def update_candidate(
@@ -297,38 +315,66 @@ def create_app(
         if job.get("status") == "committed":
             raise HTTPException(status_code=400, detail="already_committed")
 
-        digest = job.get("digest")
-        if digest and items_repo.has_chunk_with_digest(digest):
-            raise HTTPException(status_code=409, detail="chunk_already_exists")
-
         candidates = repo.list_candidates(job_id)
         keep_candidates = [c for c in candidates if c["decision"] == "KEEP"]
         id_map: Dict[str, str] = {}
         inserted = 0
-        chunk_id = f"chunk-{uuid.uuid4()}"
-        items_repo.ensure_chunk_for_item(chunk_id, {**job, "chunk_id": chunk_id})
+        updated = 0
+        chunk_source = job.get("source_json")
+        if isinstance(chunk_source, str):
+            try:
+                chunk_source = json.loads(chunk_source)
+            except json.JSONDecodeError:
+                chunk_source = {}
+        chunk_source = chunk_source or {}
+        chunk_id = job.get("chunk_id") or f"chunk-{uuid.uuid4()}"
+        chunk_id = items_repo.ensure_chunk_for_item(chunk_id, {**chunk_source, **job, "chunk_id": chunk_id})
         for cand in keep_candidates:
             item_payload = json.loads(cand["item_json"])
-            item_id = f"item-{uuid.uuid4()}"
-            id_map[item_payload.get("item_id")] = item_id
+            existing_item = None
+            stable_key = item_payload.get("stable_key")
+            if stable_key and item_payload.get("kind") in {"knowledge", "value"}:
+                existing_item = items_repo.find_item_by_stable_key(
+                    stable_key, kind=item_payload.get("kind")
+                )
 
-            items_repo.create_item(
-                item_id=item_id,
-                chunk_id=chunk_id,
-                kind=item_payload["kind"],
-                schema_id=item_payload["schema_id"],
-                title=item_payload["title"],
-                body=item_payload["body"],
-                stable_key=item_payload.get("stable_key"),
-                domain=item_payload.get("domain"),
-                confidence=item_payload.get("confidence", 0.0),
-                status="active",
-                evidence_basis=json.dumps(item_payload.get("evidence", {})),
-            )
+            if existing_item:
+                item_id = existing_item["item_id"]
+                updated += 1
+                items_repo.update_item(
+                    item_id=item_id,
+                    chunk_id=chunk_id,
+                    kind=item_payload["kind"],
+                    schema_id=item_payload["schema_id"],
+                    title=item_payload["title"],
+                    body=item_payload["body"],
+                    stable_key=item_payload.get("stable_key"),
+                    domain=item_payload.get("domain"),
+                    confidence=item_payload.get("confidence", 0.0),
+                    status="active",
+                    evidence_basis=json.dumps(item_payload.get("evidence", {})),
+                )
+            else:
+                item_id = f"item-{uuid.uuid4()}"
+                inserted += 1
+                items_repo.create_item(
+                    item_id=item_id,
+                    chunk_id=chunk_id,
+                    kind=item_payload["kind"],
+                    schema_id=item_payload["schema_id"],
+                    title=item_payload["title"],
+                    body=item_payload["body"],
+                    stable_key=item_payload.get("stable_key"),
+                    domain=item_payload.get("domain"),
+                    confidence=item_payload.get("confidence", 0.0),
+                    status="active",
+                    evidence_basis=json.dumps(item_payload.get("evidence", {})),
+                )
+
+            id_map[item_payload.get("item_id")] = item_id
             items_repo.add_payload(item_id, item_payload.get("payload", {}))
             tags_repo.replace_item_tags(item_id, item_payload.get("tags", []))
             repo.map_temp_id(job_id=job_id, temp_item_id=item_payload.get("item_id"), item_id=item_id)
-            inserted += 1
 
         created_links = 0
         for cand in keep_candidates:
@@ -353,7 +399,7 @@ def create_app(
         return {
             "ok": True,
             "inserted": inserted,
-            "updated": 0,
+            "updated": updated,
             "skipped": len(candidates) - len(keep_candidates),
             "links_created": created_links,
             "warnings": [],
