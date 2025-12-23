@@ -333,8 +333,8 @@ class SearchRepo:
             params.extend(tags)
             params.append(len(tags))
 
-        if sort == "relevance":
-            order_clause = "ORDER BY bm25(items_fts)"
+        if sort == "relevance" and query:
+            order_clause = "ORDER BY bm25(f)"
         elif sort == "created":
             order_clause = "ORDER BY i.created_at DESC"
         else:
@@ -348,10 +348,10 @@ class SearchRepo:
                 "FROM items_fts f JOIN items i ON i.item_id = f.item_id "
                 f"{join} "
             )
-            if where_clauses:
-                sql += "WHERE items_fts MATCH ? AND " + " AND ".join(where_clauses) + " "
-            else:
-                sql += "WHERE items_fts MATCH ? "
+            if where_clauses:␊
+                sql += "WHERE f MATCH ? AND " + " AND ".join(where_clauses) + " "
+            else:␊
+                sql += "WHERE f MATCH ? "
             sql += f"{order_clause} LIMIT ? OFFSET ?"
             params = [match_query, *params, limit, offset]
         else:
