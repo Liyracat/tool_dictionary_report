@@ -333,12 +333,18 @@ class SearchRepo:
             params.extend(tags)
             params.append(len(tags))
 
-        order_clause = "ORDER BY bm25(items_fts)" if sort == "relevance" else "ORDER BY i.updated_at DESC"
+        if sort == "relevance":
+            order_clause = "ORDER BY bm25(items_fts)"
+        elif sort == "created":
+            order_clause = "ORDER BY i.created_at DESC"
+        else:
+            order_clause = "ORDER BY i.updated_at DESC"
 
         if query:
             match_query = self._build_match(query)
             sql = (
-                "SELECT i.item_id, i.kind, i.schema_id, i.title, i.domain, i.updated_at, i.confidence "
+                "SELECT i.item_id, i.kind, i.schema_id, i.title, i.body, i.domain, i.created_at, i.updated_at, i.confidence, "
+                "(SELECT json_group_array(t.name) FROM item_tags it2 JOIN tags t ON t.tag_id = it2.tag_id WHERE it2.item_id = i.item_id) AS tags_json "
                 "FROM items_fts f JOIN items i ON i.item_id = f.item_id "
                 f"{join} "
             )
@@ -350,7 +356,8 @@ class SearchRepo:
             params = [match_query, *params, limit, offset]
         else:
             sql = (
-                "SELECT i.item_id, i.kind, i.schema_id, i.title, i.domain, i.updated_at, i.confidence "
+                "SELECT i.item_id, i.kind, i.schema_id, i.title, i.body, i.domain, i.created_at, i.updated_at, i.confidence, "
+                "(SELECT json_group_array(t.name) FROM item_tags it2 JOIN tags t ON t.tag_id = it2.tag_id WHERE it2.item_id = i.item_id) AS tags_json "
                 "FROM items i "
                 f"{join} "
             )
@@ -361,7 +368,18 @@ class SearchRepo:
 
         with self.db.connect() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
-            items = [row_to_dict(r) for r in rows]
+            items = []
+            for row in rows:
+                item = row_to_dict(row)
+                tags_json = item.pop("tags_json", None)
+                if tags_json:
+                    try:
+                        item["tags"] = json.loads(tags_json)
+                    except json.JSONDecodeError:
+                        item["tags"] = []
+                else:
+                    item["tags"] = []
+                items.append(item)
             return {"total": len(items), "items": items}
 
     def suggest_domains(self, prefix: str, limit: int = 20) -> List[str]:
