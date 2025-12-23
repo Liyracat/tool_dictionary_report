@@ -1,77 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-const mockItems = [
-  {
-    id: 'item-001',
-    kind: 'summary',
-    schemaId: 'summary/decision',
-    title: 'LLM 評価のサマリー',
-    domain: 'genai',
-    tags: ['llm', 'evaluation', 'memo'],
-    updatedAt: '2024-08-10',
-    createdAt: '2024-08-01',
-    confidence: 0.72,
-    body: 'LLM の評価観点を整理したサマリー。指標・プロンプトの品質・データ分布の偏りを確認する。',
-    payload: { checklist: ['プロンプト品質', 'データ偏り', 'ツールの脆弱性'] },
-    evidence: {
-      basis: '過去の検証ログと論文 3 件を参照。',
-    },
-    links: {
-      born_from: [],
-      related: ['item-003'],
-      contradicts: [],
-      supersedes: [],
-    },
-    stableKey: 'summary:llm_eval:2024',
-    stableKeySuggested: 'summary/llm-eval-2024',
-  },
-  {
-    id: 'item-002',
-    kind: 'knowledge',
-    schemaId: 'knowledge/facts',
-    title: 'SQLite の制約メモ',
-    domain: 'database',
-    tags: ['sqlite', 'constraint'],
-    updatedAt: '2024-07-28',
-    createdAt: '2024-07-20',
-    confidence: 0.9,
-    body: 'SQLite の CHECK 制約は ALTER TABLE で後付けできない。NOT NULL を付与する場合は新しいテーブルを作る。',
-    payload: { source: 'SQLite docs 3.45' },
-    evidence: {},
-    links: {
-      born_from: [],
-      related: [],
-      contradicts: [],
-      supersedes: [],
-    },
-    stableKey: 'kb:sqlite:constraints',
-    stableKeySuggested: null,
-  },
-  {
-    id: 'item-003',
-    kind: 'model',
-    schemaId: 'model/hypothesis',
-    title: 'LLM 評価フレーム',
-    domain: 'genai',
-    tags: ['llm', 'model'],
-    updatedAt: '2024-08-12',
-    createdAt: '2024-08-12',
-    confidence: 0.64,
-    body: '評価指標とユーザ意図を橋渡しする中間モデルを作成する。',
-    payload: { fields: ['目的', '指標', '観測'] },
-    evidence: {
-      basis: 'ワークショップメモより。',
-    },
-    links: {
-      born_from: ['item-001'],
-      related: [],
-      contradicts: [],
-      supersedes: [],
-    },
-    stableKey: 'model:llm_eval:v1',
-    stableKeySuggested: 'model/llm-eval-v1',
-  },
-];
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 const mockCandidates = [
   {
@@ -108,6 +37,78 @@ const sortOptions = [
   { value: 'created', label: '作成日' },
 ];
 const pageSizes = [10, 20, 50];
+const emptyLinks = { born_from: [], related: [], contradicts: [], supersedes: [] };
+
+const normalizeTags = (tags) => {
+  if (!tags) return [];
+  return tags
+    .map((t) => {
+      if (typeof t === 'string') return t;
+      if (t?.name) return t.name;
+      return '';
+    })
+    .filter(Boolean);
+};
+
+const parseEvidence = (value) => {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null ? parsed : { basis: value };
+  } catch (err) {
+    return { basis: value };
+  }
+};
+
+const toDisplayItem = (raw) => {
+  if (!raw) return null;
+  const tags = normalizeTags(raw.tags);
+  return {
+    id: raw.item_id || raw.id,
+    kind: raw.kind,
+    schemaId: raw.schema_id,
+    title: raw.title,
+    domain: raw.domain || '',
+    tags,
+    updatedAt: (raw.updated_at || raw.updatedAt || '').slice(0, 10),
+    createdAt: (raw.created_at || raw.createdAt || '').slice(0, 10),
+    confidence: raw.confidence ?? 0,
+    body: raw.body || '',
+    payload: raw.payload || {},
+    evidence: parseEvidence(raw.evidence || raw.evidence_basis),
+    links: raw.links || { ...emptyLinks },
+    stableKey: raw.stable_key || raw.stableKey || '',
+    stableKeySuggested: raw.stableKeySuggested || raw.stable_key_suggested || '',
+  };
+};
+
+const toRequestPayload = (item) => ({
+  kind: item.kind,
+  schema_id: item.schemaId || '',
+  title: item.title || '',
+  body: item.body || '',
+  stable_key: item.stableKey || null,
+  domain: item.domain || null,
+  confidence: item.confidence ?? 0,
+  payload: item.payload ?? {},
+  evidence: item.evidence ?? {},
+  tags: (item.tags || [])
+    .map((name) => ({ name: typeof name === 'string' ? name : name?.name || '' }))
+    .filter((t) => t.name),
+});
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.json();
+}
 
 function TagPill({ label }) {
   return <span className="pill">{label}</span>;
@@ -126,12 +127,7 @@ function Collapsible({ title, children, defaultOpen = false }) {
   );
 }
 
-function SearchView({
-  items,
-  onOpenDetail,
-  onCreateItem,
-  onOpenImport,
-}) {
+function SearchView({ items, onOpenDetail, onCreateItem, onOpenImport, onFiltersChange, isLoading }) {
   const [search, setSearch] = useState('');
   const [selectedKinds, setSelectedKinds] = useState([]);
   const [domain, setDomain] = useState('');
@@ -139,28 +135,11 @@ function SearchView({
   const [sortBy, setSortBy] = useState('relevance');
   const [pageSize, setPageSize] = useState(20);
 
-  const domains = useMemo(() => Array.from(new Set(items.map((i) => i.domain))), [items]);
+  useEffect(() => {
+    onFiltersChange?.({ search, selectedKinds, domain, tagFilter, sortBy, pageSize });
+  }, [search, selectedKinds, domain, tagFilter, sortBy, pageSize, onFiltersChange]);
 
-  const filtered = useMemo(() => {
-    return items
-      .filter((item) => item.title.toLowerCase().includes(search.toLowerCase()) || item.body.toLowerCase().includes(search.toLowerCase()))
-      .filter((item) => (selectedKinds.length ? selectedKinds.includes(item.kind) : true))
-      .filter((item) => (domain ? item.domain === domain : true))
-      .filter((item) => {
-        if (!tagFilter.trim()) return true;
-        const tags = tagFilter
-          .split(',')
-          .map((t) => t.trim().toLowerCase())
-          .filter(Boolean);
-        return tags.every((tag) => item.tags.some((t) => t.toLowerCase() === tag));
-      })
-      .sort((a, b) => {
-        if (sortBy === 'updated') return b.updatedAt.localeCompare(a.updatedAt);
-        if (sortBy === 'created') return b.createdAt.localeCompare(a.createdAt);
-        return b.confidence - a.confidence;
-      })
-      .slice(0, pageSize);
-  }, [items, search, selectedKinds, domain, tagFilter, sortBy, pageSize]);
+  const domains = useMemo(() => Array.from(new Set(items.map((i) => i.domain).filter(Boolean))), [items]);
 
   const toggleKind = (kind) => {
     setSelectedKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
@@ -242,32 +221,35 @@ function SearchView({
       </div>
 
       <div className="result-list">
-        {filtered.map((item) => (
-          <button key={item.id} className="result-card" onClick={() => onOpenDetail(item)}>
-            <div className="card-row">
-              <span className={`badge kind-${item.kind}`}>{item.kind}</span>
-              <strong>{item.title}</strong>
-            </div>
-            <div className="card-row muted small">
-              <span>{item.domain}</span>
-              <span>更新: {item.updatedAt}</span>
-              <span>confidence: {(item.confidence * 100).toFixed(0)}%</span>
-            </div>
-            <div className="tag-row">
-              {item.tags.slice(0, 3).map((t) => (
-                <TagPill key={t} label={t} />
-              ))}
-              {item.tags.length > 3 && <span className="muted small">+{item.tags.length - 3}</span>}
-            </div>
-            <p className="muted body-preview">{item.body}</p>
-          </button>
-        ))}
+        {isLoading && <p className="muted">読み込み中...</p>}
+        {!isLoading && items.length === 0 && <p className="muted">結果がありません。</p>}
+        {!isLoading &&
+          items.map((item) => (
+            <button key={item.id} className="result-card" onClick={() => onOpenDetail(item)}>
+              <div className="card-row">
+                <span className={`badge kind-${item.kind}`}>{item.kind}</span>
+                <strong>{item.title}</strong>
+              </div>
+              <div className="card-row muted small">
+                <span>{item.domain}</span>
+                <span>更新: {item.updatedAt}</span>
+                <span>confidence: {(item.confidence * 100).toFixed(0)}%</span>
+              </div>
+              <div className="tag-row">
+                {item.tags.slice(0, 3).map((t) => (
+                  <TagPill key={t} label={t} />
+                ))}
+                {item.tags.length > 3 && <span className="muted small">+{item.tags.length - 3}</span>}
+              </div>
+              <p className="muted body-preview">{item.body}</p>
+            </button>
+          ))}
       </div>
     </div>
   );
 }
 
-function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize }) {
+function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, isLoading }) {
   const [showPayload, setShowPayload] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
 
@@ -310,36 +292,42 @@ function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize }) {
         </div>
       </div>
 
-      <div className="detail-body">
-        <h3>本文</h3>
-        <p className="body-text">{item.body}</p>
+      {isLoading ? (
+        <p className="muted">読み込み中...</p>
+      ) : (
+        <>
+          <div className="detail-body">
+            <h3>本文</h3>
+            <p className="body-text">{item.body}</p>
 
-        <Collapsible title="payload (JSON)" defaultOpen={false}>
-          <pre>{JSON.stringify(item.payload, null, 2)}</pre>
-        </Collapsible>
+            <Collapsible title="payload (JSON)" defaultOpen={false}>
+              <pre>{JSON.stringify(item.payload, null, 2)}</pre>
+            </Collapsible>
 
-        {item.evidence?.basis && (
-          <Collapsible title="evidence.basis" defaultOpen={false}>
-            <p>{item.evidence.basis}</p>
-          </Collapsible>
-        )}
-      </div>
-
-      <div className="links">
-        <h3>links</h3>
-        {relOptions.map((rel) => (
-          <div key={rel} className="link-row">
-            <span className="badge subtle">{rel}</span>
-            <div className="link-targets">
-              {item.links?.[rel]?.length ? (
-                item.links[rel].map((linkId) => <span key={linkId} className="pill muted">{linkId}</span>)
-              ) : (
-                <span className="muted small">なし</span>
-              )}
-            </div>
+            {item.evidence?.basis && (
+              <Collapsible title="evidence.basis" defaultOpen={false}>
+                <p>{item.evidence.basis}</p>
+              </Collapsible>
+            )}
           </div>
-        ))}
-      </div>
+
+          <div className="links">
+            <h3>links</h3>
+            {relOptions.map((rel) => (
+              <div key={rel} className="link-row">
+                <span className="badge subtle">{rel}</span>
+                <div className="link-targets">
+                  {item.links?.[rel]?.length ? (
+                    item.links[rel].map((linkId) => <span key={linkId} className="pill muted">{linkId}</span>)
+                  ) : (
+                    <span className="muted small">なし</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -441,6 +429,13 @@ function EditView({ item, onSave, onCancel, onSaveAndClose }) {
     payloadText: item?.payload ? JSON.stringify(item.payload, null, 2) : '{}',
   });
 
+  useEffect(() => {
+    setDraft({
+      ...item,
+      payloadText: item?.payload ? JSON.stringify(item.payload, null, 2) : '{}',
+    });
+  }, [item]);
+
   const save = () => {
     try {
       const payload = JSON.parse(draft.payloadText || '{}');
@@ -520,20 +515,29 @@ function LinkModal({ currentItem, items, onClose, onAdd }) {
             target 検索
             <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="title / FTS" />
           </label>
-          <div className="modal-list">
+          <div className="candidate-list">
             {candidates.map((c) => (
-              <button key={c.id} className={`list-row ${selected?.id === c.id ? 'active' : ''}`} onClick={() => setSelected(c)}>
-                <span className="badge subtle">{c.kind}</span>
-                <span>{c.title}</span>
+              <button key={c.id} className={`candidate-card ${selected?.id === c.id ? 'active' : ''}`} onClick={() => setSelected(c)}>
+                <div className="candidate-header">
+                  <div className="left">
+                    <span className="badge subtle">{c.kind}</span>
+                    <strong>{c.title}</strong>
+                  </div>
+                  <span className="muted small">confidence {(c.confidence * 100).toFixed(0)}%</span>
+                </div>
+                <p className="muted small">{c.body}</p>
               </button>
             ))}
           </div>
-          <div className="preview">
-            <p className="muted small">この Item → ({rel}) → {selected ? selected.title : 'target 未選択'}</p>
-          </div>
         </div>
-        <div className="actions">
-          <button className="primary" disabled={!selected} onClick={() => selected && onAdd({ rel, targetId: selected.id })}>
+        <div className="modal-footer">
+          <button
+            className="primary"
+            onClick={() => {
+              if (selected) onAdd({ rel, targetId: selected.id });
+            }}
+            disabled={!selected}
+          >
             追加
           </button>
           <button className="ghost" onClick={onClose}>
@@ -548,12 +552,12 @@ function LinkModal({ currentItem, items, onClose, onAdd }) {
 function ImportWizard({ onClose }) {
   const [rawJson, setRawJson] = useState('');
   const [candidates, setCandidates] = useState(mockCandidates);
-  const [selectedId, setSelectedId] = useState(mockCandidates[0].id);
+  const [selectedId, setSelectedId] = useState(candidates[0]?.id);
 
   const selected = candidates.find((c) => c.id === selectedId);
 
-  const updateCandidate = (newVal) => {
-    setCandidates((prev) => prev.map((c) => (c.id === newVal.id ? newVal : c)));
+  const updateCandidate = (updated) => {
+    setCandidates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   };
 
   const toggleKeep = (id) => {
@@ -632,65 +636,165 @@ function ImportWizard({ onClose }) {
 }
 
 export default function App() {
-  const [items, setItems] = useState(mockItems);
+  const [items, setItems] = useState([]);
   const [view, setView] = useState('search');
   const [selectedItem, setSelectedItem] = useState(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [searchFilters, setSearchFilters] = useState(null);
+  const [isLoadingSearch, setIsLoadingSearch] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
-  const openDetail = (item) => {
+  const fetchSearchResults = useCallback(
+    async (filters) => {
+      setIsLoadingSearch(true);
+      try {
+        const params = new URLSearchParams();
+        if (filters?.search) params.set('q', filters.search);
+        if (filters?.selectedKinds?.length) params.set('kinds', filters.selectedKinds.join(','));
+        if (filters?.domain) params.set('domain', filters.domain);
+        if (filters?.tagFilter?.trim())
+          params.set(
+            'tags',
+            filters.tagFilter
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean)
+              .join(','),
+          );
+        if (filters?.sortBy) params.set('sort', filters.sortBy);
+        params.set('limit', String(filters?.pageSize || 20));
+
+        const data = await fetchJson(`${API_BASE}/api/search?${params.toString()}`);
+        setItems((data.items || []).map((item) => toDisplayItem(item)).filter(Boolean));
+      } catch (err) {
+        console.error(err);
+        alert('検索結果の取得に失敗しました');
+      } finally {
+        setIsLoadingSearch(false);
+      }
+    },
+    [],
+  );
+
+  const handleFiltersChange = useCallback((filters) => {
+    setSearchFilters(filters);
+  }, []);
+
+  useEffect(() => {
+    if (searchFilters) {
+      fetchSearchResults(searchFilters);
+    }
+  }, [searchFilters, fetchSearchResults]);
+
+  const loadItemDetail = useCallback(async (itemId) => {
+    const data = await fetchJson(`${API_BASE}/api/items/${itemId}`);
+    const detail = toDisplayItem({ ...data.item, tags: data.item?.tags });
+    detail.links = { ...emptyLinks };
+    try {
+      const links = await fetchJson(`${API_BASE}/api/items/${itemId}/links`);
+      const grouped = { ...emptyLinks };
+      (links.links || []).forEach((link) => {
+        const rel = link.rel || 'related';
+        if (!grouped[rel]) grouped[rel] = [];
+        grouped[rel].push(link.target_key);
+      });
+      detail.links = grouped;
+    } catch (err) {
+      console.warn('links fetch failed', err);
+    }
+    return detail;
+  }, []);
+
+  const openDetail = async (item) => {
     setSelectedItem(item);
     setView('detail');
+    setIsLoadingDetail(true);
+    try {
+      const full = await loadItemDetail(item.id);
+      setSelectedItem(full);
+    } catch (err) {
+      console.error(err);
+      alert('詳細の取得に失敗しました');
+    } finally {
+      setIsLoadingDetail(false);
+    }
   };
 
   const openNewItem = () => {
+    const now = new Date().toISOString().slice(0, 10);
     setSelectedItem({
-      id: `item-${String(items.length + 1).padStart(3, '0')}`,
+      id: null,
       kind: 'knowledge',
       schemaId: '',
       title: '',
       domain: '',
       tags: [],
-      updatedAt: new Date().toISOString().slice(0, 10),
-      createdAt: new Date().toISOString().slice(0, 10),
+      updatedAt: now,
+      createdAt: now,
       confidence: 0.5,
       body: '',
       payload: {},
       evidence: {},
-      links: { born_from: [], related: [], contradicts: [], supersedes: [] },
+      links: { ...emptyLinks },
       stableKey: '',
       stableKeySuggested: 'new/item/stable-key',
     });
     setView('edit');
   };
 
-  const handleSave = (updated) => {
-    setItems((prev) => {
-      const exists = prev.find((p) => p.id === updated.id);
-      if (exists) {
-        return prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p));
-      }
-      return [...prev, updated];
-    });
-    setSelectedItem(updated);
+  const persistItem = async (draft) => {
+    const payload = toRequestPayload(draft);
+    if (draft.id) {
+      await fetchJson(`${API_BASE}/api/items/${draft.id}`,
+        { method: 'PUT', body: JSON.stringify(payload) });
+      return draft.id;
+    }
+    const res = await fetchJson(`${API_BASE}/api/items`, { method: 'POST', body: JSON.stringify(payload) });
+    return res.item_id;
   };
 
-  const handleSaveAndClose = (updated) => {
-    handleSave(updated);
-    setView('detail');
+  const refreshSearch = useCallback(() => {
+    if (searchFilters) fetchSearchResults(searchFilters);
+  }, [fetchSearchResults, searchFilters]);
+
+  const handleSave = async (updated) => {
+    try {
+      const itemId = await persistItem(updated);
+      const detail = await loadItemDetail(itemId);
+      setSelectedItem(detail);
+      setView('edit');
+      refreshSearch();
+    } catch (err) {
+      console.error(err);
+      alert('保存に失敗しました');
+    }
   };
 
-  const handleModelize = () => {
+  const handleSaveAndClose = async (updated) => {
+    try {
+      const itemId = await persistItem(updated);
+      const detail = await loadItemDetail(itemId);
+      setSelectedItem(detail);
+      setView('detail');
+      refreshSearch();
+    } catch (err) {
+      console.error(err);
+      alert('保存に失敗しました');
+    }
+  };
+
+  const handleModelize = async () => {
     if (!selectedItem) return;
     const modelDraft = {
       ...selectedItem,
-      id: `item-${String(items.length + 1).padStart(3, '0')}`,
+      id: null,
       kind: 'model',
       schemaId: 'model/hypothesis',
       title: '',
       payload: {},
       links: {
         ...selectedItem.links,
-        born_from: [...(selectedItem.links?.born_from || []), selectedItem.id],
+        born_from: [...(selectedItem.links?.born_from || []), selectedItem.id].filter(Boolean),
       },
     };
     setSelectedItem(modelDraft);
@@ -722,7 +826,14 @@ export default function App() {
       </header>
 
       {view === 'search' && (
-        <SearchView items={items} onOpenDetail={openDetail} onCreateItem={openNewItem} onOpenImport={() => setView('import')} />
+        <SearchView
+          items={items}
+          onOpenDetail={openDetail}
+          onCreateItem={openNewItem}
+          onOpenImport={() => setView('import')}
+          onFiltersChange={handleFiltersChange}
+          isLoading={isLoadingSearch}
+        />
       )}
       {view === 'detail' && selectedItem && (
         <ItemDetail
@@ -731,6 +842,7 @@ export default function App() {
           onEdit={() => setView('edit')}
           onAddLink={() => setShowLinkModal(true)}
           onModelize={handleModelize}
+          isLoading={isLoadingDetail}
         />
       )}
       {view === 'edit' && selectedItem && (
