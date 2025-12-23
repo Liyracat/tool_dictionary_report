@@ -98,3 +98,104 @@ def test_import_commit_creates_items_and_links(tmp_path: Path) -> None:
 
     assert len(items) == 2
     assert len(links) == 1
+
+
+def test_import_commit_updates_existing_chunk_on_duplicate_digest(tmp_path: Path) -> None:
+    client, db_path = make_client(tmp_path)
+
+    first_extraction = {
+        "source": {"thread_id": "thread-1", "digest": "digest-dup", "hint": "old"},
+        "items": [
+            {
+                "item_id": "temp-1",
+                "kind": "summary",
+                "schema_id": "summary/basic.v1",
+                "title": "Old", 
+                "body": "Old body",
+            }
+        ],
+    }
+
+    first_job = client.post("/api/import/jobs", json={"extraction": first_extraction})
+    assert first_job.status_code == 200
+    first_commit = client.post(f"/api/import/jobs/{first_job.json()['job_id']}/commit")
+    assert first_commit.status_code == 200
+
+    db = Database(db_path)
+    with db.connect() as conn:
+        initial_chunk = conn.execute("SELECT * FROM chunks").fetchone()
+
+    second_extraction = {
+        "source": {"thread_id": "thread-2", "digest": "digest-dup", "hint": "updated"},
+        "items": [
+            {
+                "item_id": "temp-2",
+                "kind": "summary",
+                "schema_id": "summary/basic.v1",
+                "title": "New", 
+                "body": "New body",
+            }
+        ],
+    }
+
+    second_job = client.post("/api/import/jobs", json={"extraction": second_extraction})
+    assert second_job.status_code == 200
+    second_commit = client.post(f"/api/import/jobs/{second_job.json()['job_id']}/commit")
+    assert second_commit.status_code == 200
+    assert second_commit.json()["inserted"] == 1
+
+    with db.connect() as conn:
+        chunks = conn.execute("SELECT * FROM chunks").fetchall()
+
+    assert len(chunks) == 1
+    assert chunks[0]["chunk_id"] == initial_chunk["chunk_id"]
+    assert chunks[0]["thread_id"] == "thread-2"
+    assert chunks[0]["hint"] == "updated"
+
+
+def test_import_commit_upserts_stateful_items_by_stable_key(tmp_path: Path) -> None:
+    client, db_path = make_client(tmp_path)
+
+    base_payload = {
+        "kind": "knowledge",
+        "schema_id": "knowledge/howto.v1",
+        "title": "Initial title",
+        "body": "Initial body",
+        "stable_key": "knowledge/example",
+        "tags": [{"name": "old"}],
+    }
+
+    created = client.post("/api/items", json=base_payload)
+    assert created.status_code == 200
+    existing_id = created.json()["item_id"]
+
+    extraction = {
+        "source": {"digest": "stateful-digest"},
+        "items": [
+            {
+                "item_id": "temp-upsert",
+                "kind": "knowledge",
+                "schema_id": "knowledge/howto.v1",
+                "title": "Updated title",
+                "body": "Updated body",
+                "stable_key": "knowledge/example",
+                "domain": "imported",
+                "tags": [{"name": "fresh"}],
+            }
+        ],
+    }
+
+    job = client.post("/api/import/jobs", json={"extraction": extraction})
+    assert job.status_code == 200
+    commit = client.post(f"/api/import/jobs/{job.json()['job_id']}/commit")
+    assert commit.status_code == 200
+    assert commit.json()["updated"] == 1
+    assert commit.json()["inserted"] == 0
+
+    detail = client.get(f"/api/items/{existing_id}")
+    assert detail.status_code == 200
+    item = detail.json()["item"]
+    assert item["title"] == "Updated title"
+    assert item["body"] == "Updated body"
+    assert item["domain"] == "imported"
+    assert any(tag.get("name") == "fresh" for tag in item.get("tags", []))
