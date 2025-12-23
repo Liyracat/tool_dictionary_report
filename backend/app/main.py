@@ -305,13 +305,12 @@ def create_app(
         keep_candidates = [c for c in candidates if c["decision"] == "KEEP"]
         id_map: Dict[str, str] = {}
         inserted = 0
+        chunk_id = f"chunk-{uuid.uuid4()}"
+        items_repo.ensure_chunk_for_item(chunk_id, {**job, "chunk_id": chunk_id})
         for cand in keep_candidates:
             item_payload = json.loads(cand["item_json"])
             item_id = f"item-{uuid.uuid4()}"
             id_map[item_payload.get("item_id")] = item_id
-
-            chunk_id = job.get("chunk_id") or f"chunk-{uuid.uuid4()}"
-            items_repo.ensure_chunk_for_item(chunk_id, job)
 
             items_repo.create_item(
                 item_id=item_id,
