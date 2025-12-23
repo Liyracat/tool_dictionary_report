@@ -1,0 +1,271 @@
+API設計（FastAPI）MVP
+0) 共通
+・Base: /api
+・Content-Type: application/json
+・日付はISO8601文字列
+・payload/locator は JSON object をそのまま運ぶ（dict）
+
+1) 検索・一覧
+GET /api/search
+FTS＋フィルタで 10〜20件返す。
+
+Query
+・q string | null（FTSクエリ）
+・kinds string | null（CSV: knowledge,summary）
+・domain string | null（dot区切り、prefix一致も後で可）
+・tags string | null（CSV。MVPはAND検索）
+・limit int default 20（10/20/50）
+・offset int default 0
+・sort string default relevance（relevance|updated_at|created_at）
+
+Response
+{
+  "total": 123,
+  "items": [
+    {
+      "item_id": "i000123",
+      "kind": "summary",
+      "schema_id": "summary/discussion.v1",
+      "title": "…",
+      "domain": "personal.knowledge_management",
+      "tags": ["search","fts"],
+      "updated_at": "2025-12-22T00:00:00+09:00",
+      "confidence": 0.82
+    }
+  ]
+}
+※詳細本文やpayloadは返さない（一覧軽量化）。
+
+
+2) Item CRUD
+GET /api/items/{item_id}
+詳細取得。
+
+Response
+{
+  "item": {
+    "item_id": "i000123",
+    "stable_key": "knowledge:personal.knowledge_management:fts5",
+    "kind": "knowledge",
+    "schema_id": "knowledge/fact.v1",
+    "title": "…",
+    "body": "…",
+    "domain": "personal.knowledge_management",
+    "tags": [
+      {"name":"fts5","path":null,"confidence":0.7}
+    ],
+    "payload": { "notes": "…" },
+    "evidence": { "basis": "…" },
+    "confidence": 0.9,
+    "created_at": "…",
+    "updated_at": "…"
+  }
+}
+
+
+POST /api/items
+新規作成（手入力）。
+
+Request
+{
+  "stable_key": null,
+  "kind": "model",
+  "schema_id": "model/structure.v1",
+  "title": "…",
+  "body": "…",
+  "domain": "…",
+  "tags": [{"name":"…","path":null,"confidence":1.0}],
+  "payload": {},
+  "evidence": {"basis":"…"},
+  "confidence": 0.7
+}
+
+Response
+{ "item_id": "i000124" }
+
+
+PUT /api/items/{item_id}
+更新（全文置換でOK。MVPはPATCH不要）
+
+Request: POSTと同じ形（item_id以外）
+
+Response
+{ "ok": true }
+
+
+DELETE /api/items/{item_id}
+論理削除（status=deleted想定）
+
+Response
+{ "ok": true }
+
+3) links（手動追加・削除）
+GET /api/items/{item_id}/links
+itemに付いているリンクを返す。
+
+Response
+{
+  "links": [
+    {
+      "link_id": "l000001",
+      "rel": "born_from",
+      "target_item_id": "i000120",
+      "target_title": "…",
+      "target_kind": "summary"
+    }
+  ]
+}
+
+POST /api/items/{item_id}/links
+リンク追加。
+
+Request
+{
+  "rel": "related",
+  "target_item_id": "i000777"
+}
+
+Response
+{ "link_id": "l000002" }
+
+
+DELETE /api/links/{link_id}
+リンク削除。
+
+Response
+{ "ok": true }
+
+
+4) タグ・ドメイン候補（サジェスト）
+GET /api/suggest/tags
+Query
+・q string（前方一致）
+・limit int default 20
+
+Response
+{ "tags": ["fts5","sqlite","domain"] }
+
+GET /api/suggest/domains
+Query
+・q string（prefix、例 personal.）
+・limit int default 20
+
+Response
+{ "domains": ["personal.knowledge_management","software.testing"] }
+
+
+5) summary → model 化（導線の核）
+POST /api/items/{summary_item_id}/derive/model
+
+summaryから model を作る「下書き」を生成する。
+
+Request
+{
+  "schema_id": "model/structure.v1",
+  "copy_tags": true,
+  "copy_domain": true
+}
+
+Response（下書き）
+{
+  "draft": {
+    "kind": "model",
+    "schema_id": "model/structure.v1",
+    "title": "",
+    "body": "",
+    "domain": "personal.knowledge_management",
+    "tags": [{"name":"…","path":null,"confidence":1.0}],
+    "payload": {},
+    "links": [{"rel":"born_from","target_item_id":"i000120"}]
+  }
+}
+
+
+フロントはこのdraftを C（編集フォーム）に流し込んで、ユーザが書いてPOST /api/items で保存。
+
+
+6) インポート（ETLのLとレビュー）
+「抽出JSONを読み込んでレビュー→コミット」の一本道。
+
+POST /api/import/jobs
+
+抽出JSON（v2.3）をアップロードして、ジョブを作る。
+（ファイルアップロードはmultipartでもいいけど、MVPはJSON直POSTでもOK）
+
+Request
+{
+  "extraction": { ...抽出JSONスキーマv2.3... }
+}
+
+Response
+{ "job_id": "j000001" }
+
+GET /api/import/jobs/{job_id}
+レビュー用に候補itemsを返す。
+
+Response
+{
+  "job": {
+    "job_id": "j000001",
+    "status": "reviewing",
+    "source": { "thread_id": "...", "hint": "...", "digest": "..." }
+  },
+  "candidates": [
+    {
+      "candidate_id": "c0001",
+      "decision": "KEEP",
+      "skip_type": "NONE",
+      "reason": "…",
+      "item": { ...item本体（編集可能な形）... }
+    }
+  ]
+}
+
+PUT /api/import/jobs/{job_id}/candidates/{candidate_id}
+レビューで編集・KEEP/SKIP切替。
+
+Request
+{
+  "decision": "KEEP",
+  "skip_type": "NONE",
+  "reason": "…",
+  "item": { ...編集後item... }
+}
+
+Response
+{ "ok": true }
+
+POST /api/import/jobs/{job_id}/commit
+KEEPのものだけDBに取り込む（UPSERT含む）
+
+Response
+{
+  "ok": true,
+  "inserted": 12,
+  "updated": 5,
+  "skipped": 9,
+  "links_created": 7,
+  "warnings": ["..."]
+}
+
+POST /api/import/jobs/{job_id}/discard
+破棄。
+
+Response
+{ "ok": true }
+
+
+7) 裏の実装ルール（APIに影響する重要点）
+・item_id はDB側で採番（i000123）推奨
+  抽出JSONの temp-id:n は import job 内で解決して、コミット時に新IDへマッピングする
+・links.target_key（抽出JSON）は import段階では temp-id を参照してよい
+  コミット時に実IDへ変換して item_links に入れる
+・stable_key は knowledge/value の UPSERTキーとして使用（採用した場合）
+
+これでReact側が作れるコンポーネント
+・SearchBar（/search）
+・ResultList（/search）
+・ItemDetail（/items/{id} + /links）
+・ItemEditor（POST/PUT items）
+・LinkModal（POST link）
+・ImportWizard（jobs作成→候補編集→commit）

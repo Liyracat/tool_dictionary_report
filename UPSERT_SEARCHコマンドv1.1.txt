@@ -1,0 +1,386 @@
+1) UPSERTの具体SQL（知識・価値観用）
+A. 「同じ stable_key が来たら上書き」UPSERT（knowledge/value共通）
+
+既存行があれば title/body/domain/evidence/payload を更新、なければINSERT。
+
+-- :item_id, :chunk_id, :kind, :schema_id, :stable_key, :title, :body, :domain,
+-- :confidence, :status,
+-- :evidence_basis,
+-- :payload_json
+
+BEGIN;
+
+INSERT INTO items (
+  item_id, chunk_id, kind, schema_id, stable_key, title, body, domain,
+  confidence, status,
+  evidence_basis,
+  created_at, updated_at
+) VALUES (
+  :item_id, :chunk_id, :kind, :schema_id, :stable_key, :title, :body, :domain,
+  COALESCE(:confidence, 0.0), COALESCE(:status, 'active'),
+  :evidence_basis,
+  strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+  strftime('%Y-%m-%dT%H:%M:%fZ','now')
+)
+ON CONFLICT(kind, stable_key) DO UPDATE SET
+  -- 参照元を更新（最新の根拠に差し替え）
+  chunk_id = excluded.chunk_id,
+
+  -- 内容更新（最新が正）
+  schema_id = excluded.schema_id,
+  title = excluded.title,
+  body = excluded.body,
+  domain = excluded.domain,
+
+  confidence = excluded.confidence,
+  status = excluded.status,
+
+  evidence_basis = excluded.evidence_basis,
+
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+WHERE excluded.stable_key IS NOT NULL;
+
+-- payloadは items と別テーブルなので、どの item_id が採用されたか拾って UPSERT
+-- （INSERTが勝った時は :item_id、UPDATEが勝った時は既存 item_id）
+INSERT INTO item_payloads (item_id, payload_json)
+VALUES (
+  (SELECT item_id FROM items WHERE kind = :kind AND stable_key = :stable_key),
+  :payload_json
+)
+ON CONFLICT(item_id) DO UPDATE SET
+  payload_json = excluded.payload_json;
+
+COMMIT;
+
+ポイント
+
+競合キーは ON CONFLICT(kind, stable_key)（DDLの部分ユニークindexが効く）
+
+payload は「最終的に残った item_id」を SELECT で引っ張って更新
+
+B. 「stable_keyがまだ無い」仮登録（レビュー前の下書き用）
+
+stable_key が決まってない時は UPSERTできないので、普通にINSERTだけ。
+
+INSERT INTO items (
+  item_id, chunk_id, kind, schema_id, stable_key, title, body, domain,
+  confidence, status,
+  evidence_basis,
+  created_at, updated_at
+) VALUES (
+  :item_id, :chunk_id, :kind, :schema_id, NULL, :title, :body, :domain,
+  COALESCE(:confidence, 0.0), 'draft',
+  :evidence_basis,
+  strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+  strftime('%Y-%m-%dT%H:%M:%fZ','now')
+);
+
+INSERT INTO item_payloads (item_id, payload_json)
+VALUES (:item_id, :payload_json)
+ON CONFLICT(item_id) DO UPDATE SET payload_json = excluded.payload_json;
+
+
+「レビューで stable_key を採用した瞬間」にAのUPSERTに流すのが運用的にきれい。
+
+2) FTS検索クエリ例（10〜20件に絞る）
+
+FTSは items_fts を検索し、実体は items から取る形にするのが安定。
+
+A. シンプル全文検索（関連度順、20件）
+-- :q 例) 'stable_key OR 抽象概念*' みたいなFTSクエリ
+SELECT
+  i.item_id, i.kind, i.schema_id, i.title, i.body, i.updated_at,
+  bm25(items_fts) AS score
+FROM items_fts
+JOIN items i ON i.item_id = items_fts.item_id
+WHERE items_fts MATCH :q
+  AND i.status = 'active'
+ORDER BY score
+LIMIT 20;
+
+B. kind絞り込み＋タグも検索対象（15件）
+
+items_fts.tags_text にタグ名を入れてるので、タグ語でも引っかかる。
+
+-- :q は FTSクエリ
+-- :kind は 'knowledge' 等
+SELECT
+  i.item_id, i.kind, i.schema_id, i.title,
+  substr(i.body, 1, 240) AS body_snippet,
+  i.updated_at,
+  bm25(items_fts) AS score
+FROM items_fts
+JOIN items i ON i.item_id = items_fts.item_id
+WHERE items_fts MATCH :q
+  AND i.kind = :kind
+  AND i.status = 'active'
+ORDER BY score
+LIMIT 15;
+
+C. UI向け「まず10件、足りなければ20件」用（ページング）
+-- :q, :limit(10 or 20), :offset
+SELECT
+  i.item_id, i.kind, i.title, i.updated_at,
+  bm25(items_fts) AS score
+FROM items_fts
+JOIN items i ON i.item_id = items_fts.item_id
+WHERE items_fts MATCH :q
+  AND i.status = 'active'
+ORDER BY score
+LIMIT :limit OFFSET :offset;
+
+D. “結論ファースト”用：title重視の検索（実用チューニング）
+
+FTS5はフィールド重みを bm25(table, w1, w2, ...) でいじれる。
+ここでは title を強く、body を弱く、tags_text は中くらい。
+
+-- title, body, tags_text, kind, schema_id, domain の順（items_fts定義順）
+SELECT
+  i.item_id, i.kind, i.schema_id, i.title,
+  bm25(items_fts, 5.0, 1.0, 2.0, 0.2, 0.2, 0.5) AS score
+FROM items_fts
+JOIN items i ON i.item_id = items_fts.item_id
+WHERE items_fts MATCH :q
+  AND i.status = 'active'
+ORDER BY score
+LIMIT 20;
+
+E. 「最近更新を少し優遇」したい時（スコア合成）
+
+bm25は小さい方が良いスコア。なので“最近”を加点したい場合は工夫が要る。
+手軽なのは 2段階ソート（関連度→更新日）にする。
+
+SELECT
+  i.item_id, i.kind, i.title, i.updated_at,
+  bm25(items_fts) AS score
+FROM items_fts
+JOIN items i ON i.item_id = items_fts.item_id
+WHERE items_fts MATCH :q
+  AND i.status = 'active'
+ORDER BY score, i.updated_at DESC
+LIMIT 20;
+
+おまけ：タグで厳密に絞る（FTSじゃなく正規化タグで）
+
+「タグ検索」UIは、FTSよりこっちが正確。
+
+-- :tag_name 例) '水槽'
+SELECT
+  i.item_id, i.kind, i.title, i.updated_at
+FROM items i
+JOIN item_tags it ON it.item_id = i.item_id
+JOIN tags t ON t.tag_id = it.tag_id
+WHERE t.name = :tag_name
+  AND i.status = 'active'
+ORDER BY i.updated_at DESC
+LIMIT 20;
+
+
+
+1) 「stable_key提案→採用」フロー（draft→UPSERT移行）
+
+前提：レビュー画面で、抽出直後は items.status='draft'、stable_key は NULL か「提案としてpayloadに入ってる」状態。
+
+推奨：stable_key候補は payload に持つ
+
+例：payload_json 内に stable_key_suggested を入れておく（複数候補でもOK）。
+
+{
+  "stable_key_suggested": [
+    "knowledge.aquarium.co2.chemical_drip",
+    "knowledge.aquarium.co2.diy"
+  ]
+}
+
+A. draftに stable_key を確定させる（採用クリック時）
+
+まず draft の当該 item に stable_key を入れる（この時点ではまだUPSERTしない）。
+
+-- :item_id, :stable_key
+UPDATE items
+SET stable_key = :stable_key,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+WHERE item_id = :item_id
+  AND status = 'draft';
+
+B. 知識/価値観だけ「UPSERT確定」へ移行（最重要）
+
+ここが肝。すでに同じ (kind, stable_key) が存在するなら、そっちを更新し、draft側は不要になる。
+
+既存があれば既存を更新、draftは削除（スッキリ）
+-- :item_id （draft側のid）
+
+BEGIN;
+
+-- draft側の内容を拾う（CTE）
+WITH src AS (
+  SELECT
+    item_id, chunk_id, kind, schema_id, stable_key, title, body, domain,
+    confidence, status,
+    evidence_basis
+  FROM items
+  WHERE item_id = :item_id
+    AND status = 'draft'
+    AND kind IN ('knowledge','value')
+    AND stable_key IS NOT NULL
+),
+up AS (
+  INSERT INTO items (
+    item_id, chunk_id, kind, schema_id, stable_key, title, body, domain,
+    confidence, status,
+    evidence_basis,
+    created_at, updated_at
+  )
+  SELECT
+    item_id, chunk_id, kind, schema_id, stable_key, title, body, domain,
+    confidence, 'active',
+    evidence_basis,
+    strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+    strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  FROM src
+  ON CONFLICT(kind, stable_key) DO UPDATE SET
+    chunk_id = excluded.chunk_id,
+    schema_id = excluded.schema_id,
+    title = excluded.title,
+    body = excluded.body,
+    domain = excluded.domain,
+    confidence = excluded.confidence,
+    status = 'active',
+    evidence_basis = excluded.evidence_basis,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  RETURNING item_id AS applied_item_id, kind AS applied_kind, stable_key AS applied_key
+)
+-- payloadも適用先へ付け替え
+INSERT INTO item_payloads(item_id, payload_json)
+SELECT
+  (SELECT item_id FROM items WHERE kind = (SELECT applied_kind FROM up) AND stable_key = (SELECT applied_key FROM up)),
+  p.payload_json
+FROM item_payloads p
+WHERE p.item_id = :item_id
+ON CONFLICT(item_id) DO UPDATE SET
+  payload_json = excluded.payload_json;
+
+-- draft側を消す（payloadもFKで消える、が上でコピー済み）
+DELETE FROM items WHERE item_id = :item_id;
+
+COMMIT;
+
+
+これで「knowledge/value は常に最新が正」が担保される。
+
+
+2) born_from 前提の“芋づる表示”用クエリ（再帰CTE）
+
+前提：item_links に rel='born_from' を入れてる。
+target_key は 統一ルールが必要で、運用がラクなのはこれ：
+
+born_from の target_key は 常に item_id を入れる
+（stable_key混在は再帰が面倒になる）
+
+もし「target_keyにstable_keyを入れたい」なら、解決用のJOINが必要になる。下で両対応も出す。
+
+A. ある item から「生まれ元（born_from）」を遡る（親方向ツリー）
+
+「この概念はどの議論から生まれた？」を上へ上へ辿る。
+
+-- :start_item_id から born_from を遡る
+WITH RECURSIVE chain(level, item_id, parent_id) AS (
+  SELECT
+    0 AS level,
+    i.item_id,
+    NULL AS parent_id
+  FROM items i
+  WHERE i.item_id = :start_item_id
+
+  UNION ALL
+
+  SELECT
+    c.level + 1,
+    p.item_id,
+    c.item_id AS parent_id
+  FROM chain c
+  JOIN item_links l
+    ON l.item_id = c.item_id
+   AND l.rel = 'born_from'
+  JOIN items p
+    ON p.item_id = l.target_key
+  WHERE c.level < 30
+)
+SELECT
+  c.level,
+  i.item_id,
+  i.kind,
+  i.schema_id,
+  i.title,
+  i.updated_at
+FROM chain c
+JOIN items i ON i.item_id = c.item_id
+ORDER BY c.level ASC;
+
+
+用途：詳細画面の「由来」パネル（上に行くほど古い根）。
+
+B. ある item を「源」にして、そこから生まれた子孫（派生）を辿る（子方向）
+
+「この議論から何が生まれた？」を下へ辿る。
+
+-- :root_item_id を源に、born_from の逆向き（子孫）を辿る
+WITH RECURSIVE tree(level, item_id) AS (
+  SELECT 0, :root_item_id
+  UNION ALL
+  SELECT
+    t.level + 1,
+    child.item_id
+  FROM tree t
+  JOIN item_links l
+    ON l.rel = 'born_from'
+   AND l.target_key = t.item_id     -- 子の born_from が親を指すので逆探索はここ
+  JOIN items child
+    ON child.item_id = l.item_id
+  WHERE t.level < 30
+)
+SELECT
+  tree.level,
+  i.item_id,
+  i.kind,
+  i.schema_id,
+  i.title,
+  i.updated_at
+FROM tree
+JOIN items i ON i.item_id = tree.item_id
+ORDER BY tree.level ASC, i.updated_at ASC;
+
+
+用途：summary item（議論まとめ）から、派生した model/decision/value を一覧。
+
+C. 「芋づるを1本で見たい」：関連も混ぜたグラフ探索（深さ制限あり）
+
+born_from だけだと細いので、related/refines/supersedes も混ぜて “近傍” を出す版。
+
+-- :start_item_id の近傍を breadth-ish に拾う（循環防止にpath文字列）
+WITH RECURSIVE graph(level, item_id, path) AS (
+  SELECT 0, :start_item_id, printf('%s', :start_item_id)
+  UNION ALL
+  SELECT
+    g.level + 1,
+    CASE
+      WHEN l.rel = 'born_from' THEN l.target_key     -- 親へ
+      ELSE l.target_key                               -- related等も target_key= item_id前提
+    END AS next_item_id,
+    g.path || '>' || next_item_id
+  FROM graph g
+  JOIN item_links l
+    ON l.item_id = g.item_id
+   AND l.rel IN ('born_from','related','supersedes','contradicts')
+  WHERE g.level < 5
+    AND instr(g.path, l.target_key) = 0
+)
+SELECT DISTINCT
+  i.item_id, i.kind, i.schema_id, i.title, i.updated_at
+FROM graph
+JOIN items i ON i.item_id = graph.item_id
+ORDER BY i.updated_at DESC
+LIMIT 50;
+
+
+※これは「グラフ表示」や「関連候補サイドバー」に向いてる。

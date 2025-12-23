@@ -1,0 +1,144 @@
+画面マップ（最小で回るやつ）
+A. Home（検索・一覧）
+（ここが常用トップ）
+上段：検索バー
+・フリーワード（FTS）
+・フィルタ：kind（knowledge/value/summary/model/decision/term/correction）（複数選択）
+・フィルタ：domain（候補サジェスト）
+・フィルタ：tags（チップ）
+・並び替え：関連度 / 更新日 / 作成日
+・件数：10 / 20 / 50（デフォルト20）
+
+中段：結果一覧（カード or 表）
+各行：
+・[kind] title
+・domain（小さく）
+・tags（最大3つ＋“+N”）
+・updated_at
+・confidence（あれば薄く）
+・クリックで B. Item詳細へ
+
+右上アクション
+・+ 新規Item（手入力）
+・インポート（レビュー取り込み）
+
+B. Item詳細（読む＋編集の入口）
+（一覧→詳細の最終地点。ここが“辞書”の心臓。）
+
+ヘッダ
+・title（大）
+・サブ情報：kind / schema_id / domain / updated_at
+・tags（チップ表示、編集ボタンあり）
+
+メイン
+・body（編集可能）
+・payload（折り畳み / JSON表示）
+・evidence.basis（あれば折り畳み）
+
+右カラム（アクション）
+・編集（Cへ）
+・リンク追加（Dへ）
+・モデル化（※表示条件：kind=summary のときだけ）
+・複製（任意：同型アイテムを作る時に便利）
+・削除（論理削除：status=deleted）
+
+下段：関連（links）
+・born_from（親）
+・related
+・contradicts
+・supersedes
+    → それぞれクリックで該当Itemへ
+
+C. Item編集（手入力・修正の本体）
+（「入力・編集する場所」ここ。リラが欲しいやつ。）
+
+フォームは kind→schema_id で変わるけど、MVPはこう割り切ると速い：
+共通フィールド（常に表示）
+・kind（必須）
+・schema_id（kindに応じた候補）
+・title
+・body（大きめテキスト）
+・domain（サジェスト）
+・tags（チップ入力＋候補）
+・confidence（スライダー or 数値）
+
+payload
+・折り畳み「構造化フィールド」
+・MVPは JSONテキストエディタでOK
+    （将来：schema_id別のフォームに育てる）
+
+stable_key
+・stable_key（確定値・手入力）
+・stable_key_suggested（候補表示、クリック採用）
+
+保存ボタン
+・保存
+・保存して閉じる
+・キャンセル
+
+D. リンク追加（手動で繋ぐ）
+（item_linksを“手で足す”場所。）
+入力
+・rel（dropdown：born_from / related / contradicts / supersedes）
+・target 検索（ミニ検索：title/FTS）
+・候補一覧から選択（クリックで確定）
+
+確認
+・“このItem → (rel) → target” のプレビュー
+
+実行
+・追加
+    ※「born_from」は通常 summary をtargetにする推奨、ってバリデーションを軽く出す（強制はしない）
+
+E. インポート（チャットログ → 抽出JSON → レビュー）
+（ここが“入力・編集”のもう一つの本丸。）
+
+E-1. インポート開始
+・ファイル選択（ChatGPT export JSON）
+・分割設定（10〜15ターン、固定でOK。設定は隠しても良い）
+・抽出開始（バックエンドでLLM呼び出し）
+
+E-2. レビュー画面（候補一覧）
+左：候補リスト（抽出された items）
+・✅ KEEP / ❌ SKIP トグル
+・kindバッジ
+・title（仮でもOK）
+・confidence
+・warnings（あれば）
+
+右：選択中候補の詳細（Cの編集フォームと同じUIを再利用）
+・title/body/payload/tags/domain/stable_key
+・stable_key_suggested採用
+・links（同一抽出内のみ。必要なら編集可）
+
+下部：
+・選択をDBに取り込む（コミット）
+・全部破棄
+・後で続き（インポートジョブ保存。MVPでは無くてもいい）
+
+E-3. コミット結果
+・取り込み件数
+・SKIP件数
+・エラー（schema不一致など）
+
+「summary→model化」導線（BからCへ）
+B( summary詳細 ) の モデル化 を押す
+→ 新規Item作成（kind=model） を開く（Cを再利用）
+
+引き継ぐ（自動コピー）
+・domain（同じ）
+・tags（同じ）
+・links に born_from -> このsummary を自動追加（固定で入れていい）
+・body は「空」でもいいし、summaryの結論を薄くコピーしても良い（好み）
+
+引き継がない（意図的に切る）
+・payload（summaryとは別物なのでコピーしない）
+・schema_id（model/hypothesis or model/structure を選ばせる）
+・title（プレーンルールで新規に書かせる）
+
+
+画面遷移を一行でまとめる
+・日常：A 検索 → B 詳細 →（必要なら）C 編集 / D リンク
+・入力：A → +新規Item → C
+・取り込み：A → インポート(E) → レビュー(E-2= C再利用) → コミット
+・蒸留：B(summary) → モデル化 → C(model新規、born_from自動)

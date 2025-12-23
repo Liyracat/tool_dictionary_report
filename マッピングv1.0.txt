@@ -1,0 +1,213 @@
+「API → DB（SQLite DDL v1.1）→ 実際のSQL」の対応表
+
+0) 前提：テーブルの役割（ざっくり）
+・items：主役。検索対象（FTSのcontentでもある）
+・items_fts：FTS5（タイトル/本文など）
+・tags：タグ辞書（正規化）
+・item_tags：items↔tagsの多対多
+・item_links：items↔itemsの関係（rel + target_item_id）
+・chunks：取り込み単位（provenance）
+・（任意）chunk_items：itemsがどのchunk由来か（多対多にしておくと後で強い）
+    ・もし items.chunk_id で1対多にしてるならそれでもOK
+
+1) GET /api/search → SQL
+1-1) パラメータ無し（最新順）
+
+SELECT i.item_id, i.kind, i.schema_id, i.title, i.domain, i.updated_at, i.confidence
+FROM items i
+WHERE i.status = 'active'
+ORDER BY i.updated_at DESC
+LIMIT :limit OFFSET :offset;
+
+1-2) kind/domain/tagsフィルタ
+・kinds（CSV）は IN (...)
+・domainは完全一致（MVP）→ 後でprefix検索に拡張
+・tagsは item_tags JOIN
+
+SELECT DISTINCT i.item_id, i.kind, i.schema_id, i.title, i.domain, i.updated_at, i.confidence
+FROM items i
+LEFT JOIN item_tags it ON it.item_id = i.item_id
+LEFT JOIN tags t ON t.tag_id = it.tag_id
+WHERE i.status='active'
+  AND (:domain IS NULL OR i.domain = :domain)
+  AND (:kinds_is_null OR i.kind IN (:k1,:k2,:k3))
+  AND (:tags_is_null OR t.name IN (:t1,:t2,:t3))
+ORDER BY i.updated_at DESC
+LIMIT :limit OFFSET :offset;
+
+1-3) FTS検索（relevance順）
+WITH hits AS (
+  SELECT item_id, bm25(items_fts) AS score
+  FROM items_fts
+  WHERE items_fts MATCH :fts_query
+),
+filtered AS (
+  SELECT i.item_id, i.kind, i.schema_id, i.title, i.domain, i.updated_at, i.confidence, h.score
+  FROM hits h
+  JOIN items i ON i.item_id = h.item_id
+  WHERE i.status='active'
+    AND (:domain IS NULL OR i.domain = :domain)
+    AND (:kinds_is_null OR i.kind IN (:k1,:k2,:k3))
+)
+SELECT f.*
+FROM filtered f
+WHERE :tags_is_null
+   OR f.item_id IN (
+     SELECT it.item_id
+     FROM item_tags it
+     JOIN tags t ON t.tag_id = it.tag_id
+     WHERE t.name IN (:t1,:t2,:t3)  -- ここは選択したタグ一覧
+     GROUP BY it.item_id
+     HAVING COUNT(DISTINCT t.name) = :tag_count  -- AND条件
+   )
+ORDER BY f.score ASC
+LIMIT :limit OFFSET :offset;
+
+
+フィルタも混ぜるなら hits→items JOIN後にWHERE追加。
+
+2) GET /api/items/{item_id} → SQL
+SELECT
+  i.*
+FROM items i
+WHERE i.item_id = :item_id AND i.status='active';
+
+
+tagsも一緒に返す：
+
+SELECT t.name, t.path, it.confidence
+FROM item_tags it
+JOIN tags t ON t.tag_id = it.tag_id
+WHERE it.item_id = :item_id
+ORDER BY t.path, t.name;
+
+
+linksも返す：
+
+SELECT l.link_id, l.rel, l.target_item_id,
+       ti.title AS target_title, ti.kind AS target_kind
+FROM item_links l
+JOIN items ti ON ti.item_id = l.target_item_id
+WHERE l.item_id = :item_id
+ORDER BY l.rel, ti.updated_at DESC;
+
+3) POST /api/items → SQL（新規）
+3-1) items insert
+INSERT INTO items (
+  item_id, stable_key, kind, schema_id, title, body,
+  domain, payload_json, evidence_basis, confidence,
+  status, created_at, updated_at
+) VALUES (
+  :item_id, :stable_key, :kind, :schema_id, :title, :body,
+  :domain, :payload_json, :evidence_basis, :confidence,
+  'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+
+3-2) tags upsert + item_tags insert
+タグは「tagsに無ければ作る」→「item_tagsに紐付け」。
+
+INSERT INTO tags (name, path)
+VALUES (:name, :path)
+ON CONFLICT(name, COALESCE(path,'')) DO NOTHING;
+
+
+そしてtag_idを引いて：
+
+SELECT tag_id FROM tags WHERE name=:name AND (path=:path OR (path IS NULL AND :path IS NULL));
+
+
+item_tags：
+
+INSERT INTO item_tags (item_id, tag_id, confidence)
+VALUES (:item_id, :tag_id, :tag_conf)
+ON CONFLICT(item_id, tag_id) DO UPDATE SET confidence=excluded.confidence;
+
+※タグのUNIQUE制約はDDL次第。MVPなら UNIQUE(name, path) が一番楽。
+
+4) PUT /api/items/{item_id} → SQL（更新）
+UPDATE items SET
+  stable_key = :stable_key,
+  kind = :kind,
+  schema_id = :schema_id,
+  title = :title,
+  body = :body,
+  domain = :domain,
+  payload_json = :payload_json,
+  evidence_basis = :evidence_basis,
+  confidence = :confidence,
+  updated_at = CURRENT_TIMESTAMP
+WHERE item_id = :item_id AND status='active';
+
+DELETE FROM item_tags WHERE item_id = :item_id;
+-- その後 POSTと同様に tags upsert + item_tags insert を繰り返し
+
+5) DELETE /api/items/{item_id} → SQL（論理削除）
+UPDATE items SET status='deleted', updated_at=CURRENT_TIMESTAMP
+WHERE item_id=:item_id AND status='active';
+
+links/item_tagsは残していい（statusで隠れる）。気になるなら削除でもOK。
+
+6) links API → SQL
+GET /api/items/{id}/links
+
+上のlinks取得クエリ。
+
+POST /api/items/{id}/links
+INSERT INTO item_links (item_id, rel, target_item_id, created_at)
+VALUES (:item_id, :rel, :target_item_id, CURRENT_TIMESTAMP);
+
+
+重複防止したいなら UNIQUE(item_id, rel, target_item_id) を貼って ON CONFLICT DO NOTHING。
+
+DELETE /api/links/{link_id}
+DELETE FROM item_links WHERE link_id=:link_id;
+
+7) suggest API → SQL
+GET /api/suggest/tags?q=...
+SELECT name
+FROM tags
+WHERE name LIKE :q_prefix
+ORDER BY name
+LIMIT :limit;
+-- :q_prefix = q || '%'
+
+GET /api/suggest/domains?q=...
+
+domainは items からdistinctで十分（MVP）：
+
+SELECT DISTINCT domain
+FROM items
+WHERE domain IS NOT NULL AND domain LIKE :q_prefix
+ORDER BY domain
+LIMIT :limit;
+
+8) summary→model draft → DBアクセス
+これはDB更新は不要。summary取得だけでOK：
+・summaryを読んで domain/tags をコピーしてdraftを返す
+・保存は通常の POST /api/items + POST links で行う（または items作成時にlinksも同時作成）
+
+9) import jobs（レビュー→コミット）
+POST /api/import/jobs
+・import_jobs に source_json を保存
+・import_candidates に items[] を temp_item_id + item_json として保存
+
+レビューで candidate を編集
+・import_candidates.item_json を更新
+
+commit
+・KEEPだけ取り出して chunks/items/item_payloads/item_tags/item_links に投入
+・import_id_map に temp→実ID対応を保存（入れたければ）
+・import_jobs.status = committed
+
+10) コミット時の“temp-id:n → 実item_id” 解決（重要）
+抽出JSON内リンクは temp-id で繋がってる。
+コミットでは必ずこの変換をする。
+
+手順はこれが鉄板：
+・KEEP候補を読み込み、各candidateに new_item_id を発行（またはDB採番）
+・temp-id:* → new_item_id の辞書を作る
+・items INSERT/UPSERT（links無しで先に）
+・links を変換して item_links INSERT
+    ・targetが同ジョブ内temp-idなら辞書で置換
+    ・targetが既存DB item_id ならそのまま
+・import_job を committed にする
