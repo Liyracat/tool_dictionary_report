@@ -7,6 +7,8 @@ from typing import Any, Iterable
 def normalize_text(value: Any) -> str:
     if value is None:
         return ""
+    if isinstance(value, (list, tuple)):
+        return " ".join(normalize_text(item) for item in value)
     return " ".join(str(value).split())
 
 
