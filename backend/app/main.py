@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import Database, ensure_schema, default_schema_path
+from .import_utils import compute_digest, compute_thread_id
 from .repositories import ImportRepo, ItemsRepo, LinksRepo, SearchRepo, TagsRepo
 
 
@@ -220,29 +221,74 @@ def create_app(
             raise HTTPException(status_code=400, detail="missing_extraction")
 
         job_id = f"job-{uuid.uuid4()}"
-        source = extraction.get("source", {})
-        repo.create_job(
-            job_id=job_id,
-            source_json=source,
-            source_type=source.get("source_type", "chatgpt_export_json"),
-            thread_id=source.get("thread_id"),
-            chunk_id=source.get("chunk_id"),
-            digest=source.get("digest"),
-            hint=source.get("hint"),
-        )
+        chunks = extraction.get("chunks")
+        if chunks:
+            normalized_chunks = []
+            for chunk in chunks:
+                source = chunk.get("source", {})
+                messages = source.get("messages") or []
+                thread_id = source.get("thread_id") or (compute_thread_id(messages) if messages else None)
+                turn_range = source.get("locator", {}).get("turn_range", {}) or source.get("turn_range", {})
+                digest = source.get("digest") or (compute_digest(thread_id, turn_range) if thread_id else None)
+                normalized_chunks.append(
+                    {
+                        **chunk,
+                        "source": {
+                            **source,
+                            "thread_id": thread_id,
+                            "digest": digest,
+                        },
+                    }
+                )
 
-        items = extraction.get("items", [])
-        for item in items:
-            candidate_id = f"cand-{uuid.uuid4()}"
-            repo.add_candidate(
-                candidate_id=candidate_id,
+            first_source = normalized_chunks[0].get("source", {}) if normalized_chunks else {}
+            repo.create_job(
                 job_id=job_id,
-                temp_item_id=item.get("item_id", f"temp-{uuid.uuid4()}"),
-                item_json=item,
-                decision=item.get("decision", extraction.get("classification", {}).get("decision", "KEEP")),
-                skip_type=item.get("skip_type", extraction.get("classification", {}).get("skip_type", "NONE")),
-                reason=item.get("reason", extraction.get("classification", {}).get("reason")),
+                source_json={"chunks": normalized_chunks},
+                source_type=first_source.get("source_type", "chatgpt_export_json"),
+                thread_id=first_source.get("thread_id"),
+                chunk_id=first_source.get("chunk_id"),
+                digest=first_source.get("digest"),
+                hint=first_source.get("hint"),
             )
+
+            for chunk_index, chunk in enumerate(normalized_chunks):
+                classification = chunk.get("classification", {})
+                for item in chunk.get("items", []):
+                    candidate_id = f"cand-{uuid.uuid4()}"
+                    repo.add_candidate(
+                        candidate_id=candidate_id,
+                        job_id=job_id,
+                        temp_item_id=item.get("item_id", f"temp-{uuid.uuid4()}"),
+                        item_json={**item, "_chunk_index": chunk_index},
+                        decision=item.get("decision", classification.get("decision", "KEEP")),
+                        skip_type=item.get("skip_type", classification.get("skip_type", "NONE")),
+                        reason=item.get("reason", classification.get("reason")),
+                    )
+        else:
+            source = extraction.get("source", {})
+            repo.create_job(
+                job_id=job_id,
+                source_json=source,
+                source_type=source.get("source_type", "chatgpt_export_json"),
+                thread_id=source.get("thread_id"),
+                chunk_id=source.get("chunk_id"),
+                digest=source.get("digest"),
+                hint=source.get("hint"),
+            )
+
+            items = extraction.get("items", [])
+            for item in items:
+                candidate_id = f"cand-{uuid.uuid4()}"
+                repo.add_candidate(
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    temp_item_id=item.get("item_id", f"temp-{uuid.uuid4()}"),
+                    item_json={**item, "_chunk_index": 0},
+                    decision=item.get("decision", extraction.get("classification", {}).get("decision", "KEEP")),
+                    skip_type=item.get("skip_type", extraction.get("classification", {}).get("skip_type", "NONE")),
+                    reason=item.get("reason", extraction.get("classification", {}).get("reason")),
+                )
         return {"job_id": job_id}
 
     @app.get("/api/import/jobs/{job_id}")
@@ -320,17 +366,29 @@ def create_app(
         id_map: Dict[str, str] = {}
         inserted = 0
         updated = 0
-        chunk_source = job.get("source_json")
-        if isinstance(chunk_source, str):
+        source_payload = job.get("source_json")
+        if isinstance(source_payload, str):
             try:
-                chunk_source = json.loads(chunk_source)
+                source_payload = json.loads(source_payload)
             except json.JSONDecodeError:
-                chunk_source = {}
-        chunk_source = chunk_source or {}
-        chunk_id = job.get("chunk_id") or f"chunk-{uuid.uuid4()}"
-        chunk_id = items_repo.ensure_chunk_for_item(chunk_id, {**chunk_source, **job, "chunk_id": chunk_id})
+                source_payload = {}
+        source_payload = source_payload or {}
+        chunks = source_payload.get("chunks")
+        if not chunks:
+            chunks = [{"source": source_payload}]
+        chunk_id_map: Dict[int, str] = {}
         for cand in keep_candidates:
             item_payload = json.loads(cand["item_json"])
+            try:
+                chunk_index = int(item_payload.get("_chunk_index", 0))
+            except (TypeError, ValueError):
+                chunk_index = 0
+            if chunk_index not in chunk_id_map:
+                chunk_source = chunks[chunk_index].get("source", {}) if chunk_index < len(chunks) else {}
+                chunk_id = chunk_source.get("chunk_id") or f"chunk-{uuid.uuid4()}"
+                chunk_id = items_repo.ensure_chunk_for_item(chunk_id, {**chunk_source, "chunk_id": chunk_id})
+                chunk_id_map[chunk_index] = chunk_id
+            chunk_id = chunk_id_map[chunk_index]
             existing_item = None
             stable_key = item_payload.get("stable_key")
             if stable_key and item_payload.get("kind") in {"knowledge", "value"}:

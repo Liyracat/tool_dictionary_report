@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional, Sequence
 
+from .import_utils import compute_digest, compute_thread_id
+
 from .db import Database, row_to_dict
 
 
@@ -136,12 +138,23 @@ class ItemsRepo:
 
     def ensure_chunk_for_item(self, chunk_id: str, source: Dict[str, Any]) -> str:
         with self.db.transaction() as cur:
-            thread_id = source.get("thread_id") or source.get("source", {}).get("thread_id") or "manual"
-            digest = source.get("digest") or f"digest-{chunk_id}"
-            locator = source.get("locator") or source.get("locator_json") or {}
-            source_type = source.get("source_type", "chatgpt_export_json")
-            time_start = source.get("time_start") or source.get("time_range", {}).get("start")
-            time_end = source.get("time_end") or source.get("time_range", {}).get("end")
+            source_payload = source.get("source") if isinstance(source.get("source"), dict) else source
+            messages = source_payload.get("messages") or []
+            thread_id = (
+                source.get("thread_id")
+                or source_payload.get("thread_id")
+                or (compute_thread_id(messages) if messages else None)
+                or "manual"
+            )
+            locator = source_payload.get("locator") or source_payload.get("locator_json") or {}
+            turn_range = locator.get("turn_range") or source_payload.get("turn_range") or {}
+            digest = source.get("digest") or source_payload.get("digest") or compute_digest(thread_id, turn_range)
+            if not digest:
+                digest = f"digest-{chunk_id}"
+            source_type = source_payload.get("source_type", "chatgpt_export_json")
+            time_range = source_payload.get("time_range") or {}
+            time_start = source.get("time_start") or time_range.get("start")
+            time_end = source.get("time_end") or time_range.get("end")
 
             existing = cur.execute(
                 "SELECT * FROM chunks WHERE digest = ?",
@@ -156,7 +169,15 @@ class ItemsRepo:
                     SET thread_id = ?, source_type = ?, time_start = ?, time_end = ?, locator_json = ?, hint = ?
                     WHERE chunk_id = ?
                     """,
-                    (thread_id, source_type, time_start, time_end, json.dumps(locator), source.get("hint"), chunk_id),
+                    (
+                        thread_id,
+                        source_type,
+                        time_start,
+                        time_end,
+                        json.dumps(locator),
+                        source_payload.get("hint") or source.get("hint"),
+                        chunk_id,
+                    ),
                 )
             else:
                 cur.execute(
@@ -172,7 +193,7 @@ class ItemsRepo:
                         time_end,
                         digest,
                         json.dumps(locator),
-                        source.get("hint"),
+                        source_payload.get("hint") or source.get("hint"),
                     ),
                 )
 
