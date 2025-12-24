@@ -1,0 +1,39 @@
+{
+  "schema_version": "2.5",
+  "chunks": [
+    {
+      "chunk_tmp_id": "string",
+      "source": {
+        "source_type": "chatgpt_export_json",
+        "hint": "string",
+        "locator": {
+          "message_ids": ["string"],
+          "turn_range": {"start": 0, "end": 0},
+          "export_path": "string|null"
+        },
+        "time_range": {"start": "iso8601", "end": "iso8601"},
+      },
+      "items": [
+        {
+          "item_id": "temp-id",
+          "stable_key": "string|null",
+          "kind": "knowledge|value|summary|model|decision|term|correction",
+          "schema_id": "string",
+          "title": "string",
+          "body": "string",
+          "domain": "string|null",
+          "tags": [{"name": "string", "path": "string|null", "confidence": 0.0}],
+          "links": [
+            {"rel":"born_from|related|supersedes|contradicts","target_key":"item_id"}
+          ],
+          "evidence": {
+            "basis": "string"
+          },
+          "payload": {},
+          "stable_key_suggested": ["string","string"],
+          "confidence": 0.0
+        }
+      ]
+    }
+  ]
+}
