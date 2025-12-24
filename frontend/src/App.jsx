@@ -608,6 +608,38 @@ function ComparisonDialog({ candidate, existing, onClose }) {
   );
 }
 
+function MessageDrawer({ chunk, onClose }) {
+  if (!chunk) return null;
+  const messages = chunk.source?.messages || [];
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-header">
+          <h3>source.messages</h3>
+          <button className="ghost" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="drawer-body">
+          {messages.length ? (
+            messages.map((msg, idx) => (
+              <div key={msg.message_id || idx} className="message-card">
+                <div className="message-meta">
+                  <span className="badge subtle">{msg.role}</span>
+                  <span className="muted small">{msg.message_id || `message-${idx + 1}`}</span>
+                </div>
+                <pre className="message-content">{msg.content}</pre>
+              </div>
+            ))
+          ) : (
+            <p className="muted">messages がありません。</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ImportWizard({ onClose }) {
   const [rawJson, setRawJson] = useState('');
   const [candidates, setCandidates] = useState([]);
@@ -617,6 +649,9 @@ function ImportWizard({ onClose }) {
   const [isCommitting, setIsCommitting] = useState(false);
   const [stableKeyMatches, setStableKeyMatches] = useState({});
   const [comparison, setComparison] = useState(null);
+  const [chunks, setChunks] = useState([]);
+  const [selectedChunkIndex, setSelectedChunkIndex] = useState(0);
+  const [messageDrawerChunk, setMessageDrawerChunk] = useState(null);
 
   const selected = candidates.find((c) => c.candidateId === selectedId);
 
@@ -627,6 +662,7 @@ function ImportWizard({ onClose }) {
       keep: cand.decision !== 'SKIP',
       skipType: cand.skip_type || 'NONE',
       reason: cand.reason || '',
+      chunkIndex: item._chunk_index ?? item.chunk_index ?? 0,
       item: {
         id: item.item_id || item.id || '',
         kind: item.kind || 'knowledge',
@@ -650,9 +686,24 @@ function ImportWizard({ onClose }) {
     setIsLoadingJob(true);
     setComparison(null);
     setStableKeyMatches({});
+    setMessageDrawerChunk(null);
     try {
       const data = await fetchJson(`${API_BASE}/api/import/jobs/${id}`);
       const mapped = (data.candidates || []).map((c) => mapCandidateFromApi(c));
+      const source = data.job?.source || {};
+      const sourceChunks = Array.isArray(source.chunks) ? source.chunks : [{ source }];
+      const chunkCandidates = mapped.reduce((acc, cand) => {
+        const index = cand.chunkIndex || 0;
+        acc[index] = acc[index] || [];
+        acc[index].push(cand);
+        return acc;
+      }, {});
+      const mappedChunks = sourceChunks.map((chunk, index) => ({
+        index,
+        source: chunk.source || {},
+        classification: chunk.classification || {},
+        itemsCount: chunkCandidates[index]?.length || 0,
+      }));
       const matches = {};
       Object.entries(data.stable_key_matches || {}).forEach(([key, raw]) => {
         const display = toDisplayItem(raw);
@@ -660,7 +711,11 @@ function ImportWizard({ onClose }) {
       });
       setStableKeyMatches(matches);
       setCandidates(mapped);
-      setSelectedId(mapped[0]?.candidateId || null);
+      setChunks(mappedChunks);
+      const initialChunkIndex = mappedChunks[0]?.index || 0;
+      setSelectedChunkIndex(initialChunkIndex);
+      const firstCandidate = mapped.find((c) => c.chunkIndex === initialChunkIndex);
+      setSelectedId(firstCandidate?.candidateId || null);
     } catch (err) {
       console.error(err);
       showApiError(err, 'インポートジョブの取得に失敗しました');
@@ -668,6 +723,13 @@ function ImportWizard({ onClose }) {
       setIsLoadingJob(false);
     }
   };
+
+  useEffect(() => {
+    const chunkCandidates = candidates.filter((c) => c.chunkIndex === selectedChunkIndex);
+    if (!chunkCandidates.find((c) => c.candidateId === selectedId)) {
+      setSelectedId(chunkCandidates[0]?.candidateId || null);
+    }
+  }, [selectedChunkIndex, candidates, selectedId]);
 
   const startImport = async () => {
     if (!rawJson.trim()) {
@@ -709,6 +771,7 @@ function ImportWizard({ onClose }) {
 
     const itemPayload = {
       item_id: candidate.item.id || undefined,
+      _chunk_index: candidate.chunkIndex ?? 0,
       stable_key: candidate.item.stableKey || null,
       kind: candidate.item.kind,
       schema_id: candidate.item.schemaId,
@@ -785,6 +848,12 @@ function ImportWizard({ onClose }) {
     }
   };
 
+  const selectedChunk = chunks.find((chunk) => chunk.index === selectedChunkIndex) || null;
+  const chunkCandidates = useMemo(
+    () => candidates.filter((cand) => cand.chunkIndex === selectedChunkIndex),
+    [candidates, selectedChunkIndex],
+  );
+
   return (
     <>
       <div className="panel">
@@ -815,21 +884,73 @@ function ImportWizard({ onClose }) {
 
             {jobId && <div className="muted small">job_id: {jobId}</div>}
 
-            <h4>candidates</h4>
-            <div className="candidate-list">
-              {candidates.map((c) => (
-                <div key={c.candidateId} className={`candidate-card ${selectedId === c.candidateId ? 'active' : ''}`}>
+            <h4>chunks</h4>
+            <div className="chunk-list">
+              {chunks.map((chunk) => (
+                <div
+                  key={chunk.index}
+                  className={`chunk-card ${selectedChunkIndex === chunk.index ? 'active' : ''}`}
+                >
+                  <div className="chunk-header">
+                    <div className="left">
+                      <span className={`badge ${chunk.classification?.decision === 'SKIP' ? 'skip' : 'keep'}`}>
+                        {chunk.classification?.decision || 'KEEP'}
+                      </span>
+                      <strong>Chunk {chunk.index + 1}</strong>
+                    </div>
+                    <span className="muted small">{chunk.itemsCount} items</span>
+                  </div>
+                  <div className="chunk-meta">
+                    <div>
+                      <span className="label">skip_type</span>
+                      <span>{chunk.classification?.skip_type || 'NONE'}</span>
+                    </div>
+                    <div>
+                      <span className="label">confidence</span>
+                      <span>{((chunk.classification?.confidence || 0) * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                  <p className="muted small">{chunk.classification?.reason || 'reason なし'}</p>
+                  <p className="muted small">{chunk.source?.hint || 'hint なし'}</p>
+                  <div className="candidate-actions">
+                    <button className="ghost tiny" onClick={() => setSelectedChunkIndex(chunk.index)}>
+                      選択して編集
+                    </button>
+                    <button className="ghost tiny" onClick={() => setMessageDrawerChunk(chunk)}>
+                      メッセージ表示
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="import-right">
+            <h4>items</h4>
+            <div className="item-list">
+              {chunkCandidates.map((c) => (
+                <div key={c.candidateId} className={`item-card ${selectedId === c.candidateId ? 'active' : ''}`}>
                   <div className="candidate-header">
                     <div className="left">
                       <button className={`pill-toggle ${c.keep ? 'keep' : 'skip'}`} onClick={() => toggleKeep(c.candidateId)}>
                         {c.keep ? '✅ KEEP' : '❌ SKIP'}
                       </button>
                       <span className="badge subtle">{c.item.kind}</span>
-                      <strong>{c.item.title}</strong>
+                      <strong>{c.item.title || '（titleなし）'}</strong>
                     </div>
                     <span className="muted small">confidence {(c.item.confidence * 100).toFixed(0)}%</span>
                   </div>
-                  <p className="muted small">{c.item.body}</p>
+                  <div className="item-meta">
+                    <div>
+                      <span className="label">stable_key</span>
+                      <span>{c.item.stableKey || 'なし'}</span>
+                    </div>
+                    <div>
+                      <span className="label">domain</span>
+                      <span>{c.item.domain || 'なし'}</span>
+                    </div>
+                  </div>
+                  <p className="muted small preview-lines">{c.item.body}</p>
                   <div className="candidate-actions">
                     <button className="ghost tiny" onClick={() => setSelectedId(c.candidateId)}>
                       選択して編集
@@ -848,9 +969,6 @@ function ImportWizard({ onClose }) {
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className="import-right">
             <h4>候補編集</h4>
             {selected ? (
               <ItemForm
@@ -878,6 +996,9 @@ function ImportWizard({ onClose }) {
           existing={comparison.existing}
           onClose={() => setComparison(null)}
         />
+      )}
+      {messageDrawerChunk && (
+        <MessageDrawer chunk={messageDrawerChunk} onClose={() => setMessageDrawerChunk(null)} />
       )}
     </>
   );
