@@ -2,7 +2,7 @@
   "schema_version": "2.4",
   "chunks": [
     {
-      "chunks_tmp_id": "string",
+      "chunk_tmp_id": "string",
       "source": {
         "source_type": "chatgpt_export_json",
         "hint": "string",
@@ -42,4 +42,5 @@
       ]
     }
   ]
+
 }
