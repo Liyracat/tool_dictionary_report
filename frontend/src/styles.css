@@ -566,6 +566,30 @@ textarea {
   padding-left: 1rem;
 }
 
+.generator-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.speaker-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.3fr);
+  gap: 1rem;
+}
+
+.speaker-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.speaker-empty {
+  padding: 0.75rem;
+}
+
 .drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -600,18 +624,15 @@ textarea {
   gap: 0.75rem;
 }
 
-.message-card {
+.message-block {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 0.75rem;
   background: #f9fafb;
 }
 
-.message-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
+.message-speaker {
+  margin-bottom: 0.25rem;
 }
 
 .message-content {
@@ -627,5 +648,9 @@ textarea {
 
   .actions.column {
     flex-direction: row;
+  }
+
+  .speaker-grid {
+    grid-template-columns: 1fr;
   }
 }

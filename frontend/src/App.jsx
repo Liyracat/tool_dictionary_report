@@ -122,7 +122,15 @@ function Collapsible({ title, children, defaultOpen = false }) {
   );
 }
 
-function SearchView({ items, onOpenDetail, onCreateItem, onOpenImport, onFiltersChange, isLoading }) {
+function SearchView({
+  items,
+  onOpenDetail,
+  onCreateItem,
+  onOpenImport,
+  onOpenInputGenerator,
+  onFiltersChange,
+  isLoading,
+}) {
   const [search, setSearch] = useState('');
   const [selectedKinds, setSelectedKinds] = useState([]);
   const [domain, setDomain] = useState('');
@@ -148,6 +156,9 @@ function SearchView({ items, onOpenDetail, onCreateItem, onOpenImport, onFilters
           <p className="muted">フリーワード検索とフィルタで Item を探します。</p>
         </div>
         <div className="actions">
+          <button className="ghost" onClick={onOpenInputGenerator}>
+            入力JSON生成
+          </button>
           <button className="ghost" onClick={onOpenImport}>
             インポート
           </button>
@@ -608,14 +619,346 @@ function ComparisonDialog({ candidate, existing, onClose }) {
   );
 }
 
-function MessageDrawer({ chunk, onClose }) {
-  if (!chunk) return null;
-  const messages = chunk.source?.messages || [];
+function SpeakerManagerModal({ onClose, onRefresh }) {
+  const [speakers, setSpeakers] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [formState, setFormState] = useState({ speaker_name: '', role: '', canonical_role: 'unknown' });
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadSpeakers = useCallback(async () => {
+    try {
+      const data = await fetchJson(`${API_BASE}/api/speakers`);
+      setSpeakers(data.speakers || []);
+    } catch (err) {
+      console.error(err);
+      showApiError(err, 'speaker の取得に失敗しました');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSpeakers();
+  }, [loadSpeakers]);
+
+  const handleSelect = (speaker) => {
+    setSelectedId(speaker.speaker_id);
+    setFormState({
+      speaker_name: speaker.speaker_name || '',
+      role: speaker.role || '',
+      canonical_role: speaker.canonical_role || 'unknown',
+    });
+  };
+
+  const handleSave = async () => {
+    if (!formState.speaker_name.trim()) {
+      alert('speaker_name を入力してください');
+      return;
+    }
+    setIsSaving(true);
+    const payload = {
+      ...formState,
+      role: formState.role?.trim() || null,
+      speaker_name: formState.speaker_name.trim(),
+    };
+    try {
+      if (selectedId) {
+        await fetchJson(`${API_BASE}/api/speakers/${selectedId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson(`${API_BASE}/api/speakers`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
+      await loadSpeakers();
+      onRefresh?.();
+      setSelectedId(null);
+      setFormState({ speaker_name: '', role: '', canonical_role: 'unknown' });
+    } catch (err) {
+      console.error(err);
+      showApiError(err, 'speaker の保存に失敗しました');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedId) return;
+    if (!window.confirm('speaker を削除しますか？')) return;
+    try {
+      await fetchJson(`${API_BASE}/api/speakers/${selectedId}`, { method: 'DELETE' });
+      await loadSpeakers();
+      onRefresh?.();
+      setSelectedId(null);
+      setFormState({ speaker_name: '', role: '', canonical_role: 'unknown' });
+    } catch (err) {
+      console.error(err);
+      showApiError(err, 'speaker の削除に失敗しました');
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Speaker マスタ</h3>
+          <button className="ghost" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body speaker-grid">
+          <div className="modal-list">
+            {speakers.length ? (
+              speakers.map((speaker) => (
+                <button
+                  key={speaker.speaker_id}
+                  className={`list-row ${selectedId === speaker.speaker_id ? 'active' : ''}`}
+                  onClick={() => handleSelect(speaker)}
+                >
+                  <span className="badge subtle">{speaker.canonical_role}</span>
+                  <span>{speaker.speaker_name}</span>
+                </button>
+              ))
+            ) : (
+              <div className="muted small speaker-empty">speaker が登録されていません。</div>
+            )}
+          </div>
+          <div className="speaker-form">
+            <label>
+              speaker_name
+              <input
+                type="text"
+                value={formState.speaker_name}
+                onChange={(e) => setFormState({ ...formState, speaker_name: e.target.value })}
+              />
+            </label>
+            <label>
+              role
+              <input
+                type="text"
+                value={formState.role}
+                onChange={(e) => setFormState({ ...formState, role: e.target.value })}
+                placeholder="free-form"
+              />
+            </label>
+            <label>
+              canonical_role
+              <select
+                value={formState.canonical_role}
+                onChange={(e) => setFormState({ ...formState, canonical_role: e.target.value })}
+              >
+                {['human', 'ai', 'system', 'unknown'].map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="actions">
+              <button className="primary" onClick={handleSave} disabled={isSaving}>
+                {selectedId ? '更新' : '追加'}
+              </button>
+              <button className="ghost" onClick={() => setFormState({ speaker_name: '', role: '', canonical_role: 'unknown' })}>
+                クリア
+              </button>
+              <button className="ghost danger" onClick={handleDelete} disabled={!selectedId}>
+                削除
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InputJsonGenerator({ onClose }) {
+  const [rawText, setRawText] = useState('');
+  const [outputText, setOutputText] = useState('');
+  const [messagesCount, setMessagesCount] = useState(0);
+  const [speakers, setSpeakers] = useState([]);
+  const [showSpeakerModal, setShowSpeakerModal] = useState(false);
+
+  const loadSpeakers = useCallback(async () => {
+    try {
+      const data = await fetchJson(`${API_BASE}/api/speakers`);
+      setSpeakers(data.speakers || []);
+    } catch (err) {
+      console.error(err);
+      showApiError(err, 'speaker の取得に失敗しました');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSpeakers();
+  }, [loadSpeakers]);
+
+  const parseRawText = () => {
+    if (!rawText.trim()) {
+      alert('生テキストを入力してください');
+      return;
+    }
+    const speakerMap = new Map(speakers.map((speaker) => [speaker.speaker_name, speaker]));
+    const speakerNames = new Set(speakers.map((speaker) => speaker.speaker_name));
+    const lines = rawText.split(/\r?\n/);
+    const messages = [];
+    let currentSpeaker = null;
+    let currentLines = [];
+
+    const flushMessage = () => {
+      if (!currentSpeaker) return;
+      const content = currentLines.join('\n');
+      messages.push({ speaker: currentSpeaker, content });
+    };
+
+    const matchSpeakerLine = (line) => {
+      if (!line) return null;
+      if (speakerNames.has(line)) return line;
+      const trimmed = line.replace(/[:：]$/, '');
+      if (trimmed !== line && speakerNames.has(trimmed)) {
+        return trimmed;
+      }
+      return null;
+    };
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const matched = matchSpeakerLine(trimmed);
+      if (matched) {
+        flushMessage();
+        currentSpeaker = matched;
+        currentLines = [];
+      } else if (currentSpeaker) {
+        currentLines.push(line);
+      }
+    });
+    flushMessage();
+
+    const chunkSize = 14;
+    const chunks = [];
+    for (let i = 0; i < messages.length; i += chunkSize) {
+      const chunkTmpId = chunks.length + 1;
+      const chunkMessages = messages.slice(i, i + chunkSize).map((msg, index) => {
+        const speakerData = speakerMap.get(msg.speaker);
+        return {
+          message_id: `${chunkTmpId}:${index + 1}`,
+          speaker: msg.speaker,
+          role: speakerData?.role ? speakerData.role : null,
+          canonical_role: speakerData?.canonical_role || 'unknown',
+          content: msg.content,
+        };
+      });
+      chunks.push({ chunk_tmp_id: chunkTmpId, messages: chunkMessages });
+    }
+
+    const outputJson = {
+      input_version: '1.0',
+      chunks,
+    };
+    setMessagesCount(messages.length);
+    setOutputText(JSON.stringify(outputJson, null, 2));
+  };
+
+  const downloadJson = () => {
+    if (!outputText) {
+      alert('先に入力 JSON を生成してください');
+      return;
+    }
+    const blob = new Blob([outputText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'input.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>入力JSON生成</h2>
+          <p className="muted">生テキストから入力 JSON (v1.0) を生成します。</p>
+        </div>
+        <div className="actions">
+          <button className="ghost" onClick={() => setShowSpeakerModal(true)}>
+            speaker マスタ
+          </button>
+          <button className="ghost" onClick={onClose}>
+            閉じる
+          </button>
+        </div>
+      </div>
+
+      <div className="generator-grid">
+        <div>
+          <h4>生テキスト</h4>
+          <textarea
+            rows={12}
+            placeholder="[speaker] または [speaker]： の行で区切ります"
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+          />
+          <div className="actions">
+            <button className="primary" onClick={parseRawText}>
+              入力 JSON を生成
+            </button>
+            <button className="ghost" onClick={downloadJson}>
+              JSON をダウンロード
+            </button>
+            {messagesCount > 0 && <span className="muted small">{messagesCount} messages</span>}
+          </div>
+        </div>
+        <div>
+          <h4>生成結果</h4>
+          <textarea rows={12} readOnly value={outputText} placeholder="生成結果がここに表示されます。" />
+        </div>
+      </div>
+
+      {showSpeakerModal && (
+        <SpeakerManagerModal
+          onClose={() => setShowSpeakerModal(false)}
+          onRefresh={loadSpeakers}
+        />
+      )}
+    </div>
+  );
+}
+
+function CandidateEditModal({ candidate, onClose, onChange }) {
+  if (!candidate) return null;
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h3>候補編集</h3>
+            <p className="muted small">{candidate.item?.title || '（titleなし）'}</p>
+          </div>
+          <button className="ghost" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body">
+          <ItemForm
+            value={candidate.item}
+            onChange={onChange}
+            stableKeySuggested={candidate.item?.stableKeySuggested}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageDrawer({ title, messages, onClose }) {
+  if (!messages) return null;
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-header">
-          <h3>source.messages</h3>
+          <h3>{title}</h3>
           <button className="ghost" onClick={onClose}>
             ×
           </button>
@@ -623,10 +966,9 @@ function MessageDrawer({ chunk, onClose }) {
         <div className="drawer-body">
           {messages.length ? (
             messages.map((msg, idx) => (
-              <div key={msg.message_id || idx} className="message-card">
-                <div className="message-meta">
-                  <span className="badge subtle">{msg.role}</span>
-                  <span className="muted small">{msg.message_id || `message-${idx + 1}`}</span>
+              <div key={msg.message_id || idx} className="message-block">
+                <div className="message-speaker">
+                  <strong>{msg.speaker || msg.role || 'unknown'}</strong>
                 </div>
                 <pre className="message-content">{msg.content}</pre>
               </div>
@@ -641,7 +983,8 @@ function MessageDrawer({ chunk, onClose }) {
 }
 
 function ImportWizard({ onClose }) {
-  const [rawJson, setRawJson] = useState('');
+  const [extractionRawJson, setExtractionRawJson] = useState('');
+  const [inputRawJson, setInputRawJson] = useState('');
   const [candidates, setCandidates] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [jobId, setJobId] = useState(null);
@@ -651,7 +994,9 @@ function ImportWizard({ onClose }) {
   const [comparison, setComparison] = useState(null);
   const [chunks, setChunks] = useState([]);
   const [selectedChunkIndex, setSelectedChunkIndex] = useState(0);
-  const [messageDrawerChunk, setMessageDrawerChunk] = useState(null);
+  const [messageDrawerData, setMessageDrawerData] = useState(null);
+  const [inputChunksMap, setInputChunksMap] = useState({});
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const selected = candidates.find((c) => c.candidateId === selectedId);
 
@@ -686,7 +1031,7 @@ function ImportWizard({ onClose }) {
     setIsLoadingJob(true);
     setComparison(null);
     setStableKeyMatches({});
-    setMessageDrawerChunk(null);
+    setMessageDrawerData(null);
     try {
       const data = await fetchJson(`${API_BASE}/api/import/jobs/${id}`);
       const mapped = (data.candidates || []).map((c) => mapCandidateFromApi(c));
@@ -698,12 +1043,16 @@ function ImportWizard({ onClose }) {
         acc[index].push(cand);
         return acc;
       }, {});
-      const mappedChunks = sourceChunks.map((chunk, index) => ({
-        index,
-        source: chunk.source || {},
-        classification: chunk.classification || {},
-        itemsCount: chunkCandidates[index]?.length || 0,
-      }));
+      const mappedChunks = sourceChunks.map((chunk, index) => {
+        const chunkTmpId = chunk.chunk_tmp_id ?? chunk.chunks_tmp_id ?? chunk.chunk_id ?? index + 1;
+        return {
+          index,
+          chunkTmpId: String(chunkTmpId),
+          source: chunk.source || {},
+          classification: chunk.classification || {},
+          itemsCount: chunkCandidates[index]?.length || 0,
+        };
+      });
       const matches = {};
       Object.entries(data.stable_key_matches || {}).forEach(([key, raw]) => {
         const display = toDisplayItem(raw);
@@ -732,16 +1081,35 @@ function ImportWizard({ onClose }) {
   }, [selectedChunkIndex, candidates, selectedId]);
 
   const startImport = async () => {
-    if (!rawJson.trim()) {
+    if (!extractionRawJson.trim()) {
       alert('抽出 JSON を貼り付けてください');
       return;
     }
     let parsed;
     try {
-      parsed = JSON.parse(rawJson);
+      parsed = JSON.parse(extractionRawJson);
     } catch (err) {
       alert('抽出 JSON のパースに失敗しました');
       return;
+    }
+    if (inputRawJson.trim()) {
+      try {
+        const parsedInput = JSON.parse(inputRawJson);
+        const inputChunks = Array.isArray(parsedInput.chunks) ? parsedInput.chunks : [];
+        const mappedInputChunks = {};
+        inputChunks.forEach((chunk) => {
+          const chunkTmpId = chunk.chunk_tmp_id ?? chunk.chunks_tmp_id ?? chunk.chunk_id;
+          if (chunkTmpId != null) {
+            mappedInputChunks[String(chunkTmpId)] = chunk;
+          }
+        });
+        setInputChunksMap(mappedInputChunks);
+      } catch (err) {
+        alert('入力 JSON のパースに失敗しました');
+        return;
+      }
+    } else {
+      setInputChunksMap({});
     }
     const extraction = parsed.extraction || parsed;
     try {
@@ -853,6 +1221,10 @@ function ImportWizard({ onClose }) {
     () => candidates.filter((cand) => cand.chunkIndex === selectedChunkIndex),
     [candidates, selectedChunkIndex],
   );
+  const resolveMessagesForChunk = (chunk) => {
+    if (!chunk) return [];
+    return inputChunksMap[chunk.chunkTmpId]?.messages || [];
+  };
 
   return (
     <>
@@ -869,18 +1241,27 @@ function ImportWizard({ onClose }) {
 
         <div className="import-layout">
           <div className="import-left">
-            <h4>抽出 JSON</h4>
-            <textarea
-              rows={6}
-              placeholder="抽出 JSON を貼り付け、またはファイルから読み込みます。"
-              value={rawJson}
-              onChange={(e) => setRawJson(e.target.value)}
-            />
-            <div className="muted small">※ ファイル読み込みは未実装（MVP）。</div>
-            <div className="actions">
-              <button className="primary" onClick={startImport}>JSON を読み込む</button>
-              {isLoadingJob && <span className="muted small">読み込み中...</span>}
-            </div>
+            <Collapsible title="入力 JSON (v1.0)" defaultOpen={true}>
+              <textarea
+                rows={6}
+                placeholder="入力 JSON を貼り付けてください。"
+                value={inputRawJson}
+                onChange={(e) => setInputRawJson(e.target.value)}
+              />
+            </Collapsible>
+            <Collapsible title="抽出 JSON (v2.4)" defaultOpen={true}>
+              <textarea
+                rows={6}
+                placeholder="抽出 JSON を貼り付け、またはファイルから読み込みます。"
+                value={extractionRawJson}
+                onChange={(e) => setExtractionRawJson(e.target.value)}
+              />
+              <div className="muted small">※ ファイル読み込みは未実装（MVP）。</div>
+              <div className="actions">
+                <button className="primary" onClick={startImport}>JSON を読み込む</button>
+                {isLoadingJob && <span className="muted small">読み込み中...</span>}
+              </div>
+            </Collapsible>
 
             {jobId && <div className="muted small">job_id: {jobId}</div>}
 
@@ -897,6 +1278,7 @@ function ImportWizard({ onClose }) {
                         {chunk.classification?.decision || 'KEEP'}
                       </span>
                       <strong>Chunk {chunk.index + 1}</strong>
+                      <span className="muted small">tmp_id {chunk.chunkTmpId}</span>
                     </div>
                     <span className="muted small">{chunk.itemsCount} items</span>
                   </div>
@@ -916,7 +1298,15 @@ function ImportWizard({ onClose }) {
                     <button className="ghost tiny" onClick={() => setSelectedChunkIndex(chunk.index)}>
                       選択して編集
                     </button>
-                    <button className="ghost tiny" onClick={() => setMessageDrawerChunk(chunk)}>
+                    <button
+                      className="ghost tiny"
+                      onClick={() =>
+                        setMessageDrawerData({
+                          title: `chunk_tmp_id ${chunk.chunkTmpId} messages`,
+                          messages: resolveMessagesForChunk(chunk),
+                        })
+                      }
+                    >
                       メッセージ表示
                     </button>
                   </div>
@@ -971,11 +1361,11 @@ function ImportWizard({ onClose }) {
             </div>
             <h4>候補編集</h4>
             {selected ? (
-              <ItemForm
-                value={selected.item}
-                onChange={(val) => updateCandidateItem(selected.candidateId, val)}
-                stableKeySuggested={selected.item.stableKeySuggested}
-              />
+              <div className="actions">
+                <button className="primary" onClick={() => setShowEditModal(true)}>
+                  候補を編集
+                </button>
+              </div>
             ) : (
               <p className="muted">候補を選択してください。</p>
             )}
@@ -997,8 +1387,19 @@ function ImportWizard({ onClose }) {
           onClose={() => setComparison(null)}
         />
       )}
-      {messageDrawerChunk && (
-        <MessageDrawer chunk={messageDrawerChunk} onClose={() => setMessageDrawerChunk(null)} />
+      {messageDrawerData && (
+        <MessageDrawer
+          title={messageDrawerData.title}
+          messages={messageDrawerData.messages}
+          onClose={() => setMessageDrawerData(null)}
+        />
+      )}
+      {showEditModal && selected && (
+        <CandidateEditModal
+          candidate={selected}
+          onClose={() => setShowEditModal(false)}
+          onChange={(val) => updateCandidateItem(selected.candidateId, val)}
+        />
       )}
     </>
   );
@@ -1234,6 +1635,7 @@ export default function App() {
           onOpenDetail={openDetail}
           onCreateItem={openNewItem}
           onOpenImport={() => setView('import')}
+          onOpenInputGenerator={() => setView('input-generator')}
           onFiltersChange={handleFiltersChange}
           isLoading={isLoadingSearch}
         />
@@ -1259,6 +1661,7 @@ export default function App() {
         />
       )}
       {view === 'import' && <ImportWizard onClose={() => setView('search')} />}
+      {view === 'input-generator' && <InputJsonGenerator onClose={() => setView('search')} />}
 
       {showLinkModal && selectedItem && (
         <LinkModal
