@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .db import Database, ensure_schema, default_schema_path
 from .import_utils import compute_digest, compute_thread_id
-from .repositories import ImportRepo, ItemsRepo, LinksRepo, SearchRepo, TagsRepo
+from .repositories import ImportRepo, ItemsRepo, LinksRepo, SearchRepo, SpeakerRepo, TagsRepo
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -59,6 +59,9 @@ def create_app(
 
     def get_import_repo() -> ImportRepo:
         return ImportRepo(app.state.db)
+
+    def get_speaker_repo() -> SpeakerRepo:
+        return SpeakerRepo(app.state.db)
 
     @app.get("/api/health")
     def health() -> Dict[str, str]:
@@ -186,6 +189,50 @@ def create_app(
         search: SearchRepo = Depends(get_search_repo),
     ) -> Dict[str, List[str]]:
         return {"domains": search.suggest_domains(q, limit=limit)}
+
+    @app.get("/api/speakers")
+    def list_speakers(repo: SpeakerRepo = Depends(get_speaker_repo)) -> Dict[str, Any]:
+        return {"speakers": repo.list_speakers()}
+
+    @app.post("/api/speakers")
+    def create_speaker(
+        body: Dict[str, Any],
+        repo: SpeakerRepo = Depends(get_speaker_repo),
+    ) -> Dict[str, Any]:
+        speaker_name = body.get("speaker_name")
+        if not speaker_name:
+            raise HTTPException(status_code=400, detail="missing_speaker_name")
+        speaker_id = repo.create_speaker(
+            speaker_name=speaker_name,
+            role=body.get("role"),
+            canonical_role=body.get("canonical_role", "unknown"),
+        )
+        return {"speaker_id": speaker_id}
+
+    @app.put("/api/speakers/{speaker_id}")
+    def update_speaker(
+        speaker_id: int,
+        body: Dict[str, Any],
+        repo: SpeakerRepo = Depends(get_speaker_repo),
+    ) -> Dict[str, Any]:
+        speaker_name = body.get("speaker_name")
+        if not speaker_name:
+            raise HTTPException(status_code=400, detail="missing_speaker_name")
+        repo.update_speaker(
+            speaker_id=speaker_id,
+            speaker_name=speaker_name,
+            role=body.get("role"),
+            canonical_role=body.get("canonical_role", "unknown"),
+        )
+        return {"ok": True}
+
+    @app.delete("/api/speakers/{speaker_id}")
+    def delete_speaker(
+        speaker_id: int,
+        repo: SpeakerRepo = Depends(get_speaker_repo),
+    ) -> Dict[str, Any]:
+        repo.delete_speaker(speaker_id)
+        return {"ok": True}
 
     @app.get("/api/search")
     def search_items(

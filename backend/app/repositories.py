@@ -344,6 +344,57 @@ class LinksRepo:
             cur.execute("DELETE FROM item_links WHERE link_id = ?", (link_id,))
 
 
+class SpeakerRepo:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def list_speakers(self) -> List[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT speaker_id, speaker_name, role, canonical_role FROM speakers ORDER BY speaker_name"
+            ).fetchall()
+            return [row_to_dict(r) for r in rows]
+
+    def create_speaker(
+        self,
+        *,
+        speaker_name: str,
+        role: Optional[str] = None,
+        canonical_role: str = "unknown",
+    ) -> int:
+        with self.db.transaction() as cur:
+            cur.execute(
+                """
+                INSERT INTO speakers(speaker_name, role, canonical_role)
+                VALUES (?, ?, ?)
+                """,
+                (speaker_name, role, canonical_role),
+            )
+            return int(cur.lastrowid)
+
+    def update_speaker(
+        self,
+        *,
+        speaker_id: int,
+        speaker_name: str,
+        role: Optional[str] = None,
+        canonical_role: str = "unknown",
+    ) -> None:
+        with self.db.transaction() as cur:
+            cur.execute(
+                """
+                UPDATE speakers
+                SET speaker_name = ?, role = ?, canonical_role = ?
+                WHERE speaker_id = ?
+                """,
+                (speaker_name, role, canonical_role, speaker_id),
+            )
+
+    def delete_speaker(self, speaker_id: int) -> None:
+        with self.db.transaction() as cur:
+            cur.execute("DELETE FROM speakers WHERE speaker_id = ?", (speaker_id,))
+
+
 class SearchRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
