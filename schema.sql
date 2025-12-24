@@ -133,6 +133,18 @@ CREATE INDEX IF NOT EXISTS idx_item_tags_tag
 
 
 -- =========================================================
+-- Speaker master
+-- =========================================================
+CREATE TABLE IF NOT EXISTS speakers (
+  speaker_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  speaker_name   TEXT NOT NULL UNIQUE,
+  role           TEXT,
+  canonical_role TEXT NOT NULL DEFAULT 'unknown',
+  CHECK (canonical_role IN ('human', 'ai', 'system', 'unknown'))
+);
+
+
+-- =========================================================
 -- Full Text Search (FTS5)
 -- contentless FTS + triggers
 -- =========================================================
