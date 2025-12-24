@@ -194,20 +194,36 @@ const toDisplayItem = (raw) => {
   };
 };
 
-const toRequestPayload = (item) => ({
-  kind: item.kind,
-  schema_id: item.schemaId || '',
-  title: item.title || '',
-  body: item.body || '',
-  stable_key: item.stableKey || null,
-  domain: item.domain || null,
-  confidence: item.confidence ?? 0,
-  payload: item.payload ?? {},
-  evidence: item.evidence ?? {},
-  tags: (item.tags || [])
-    .map((name) => ({ name: typeof name === 'string' ? name : name?.name || '' }))
-    .filter((t) => t.name),
-});
+const toRequestPayload = (item) => {
+  const tagsText = item.tagsText ?? (item.tags || []).join(',');
+  return {
+    kind: item.kind,
+    schema_id: item.schemaId || '',
+    title: item.title || '',
+    body: item.body || '',
+    stable_key: item.stableKey || null,
+    domain: item.domain || null,
+    confidence: item.confidence ?? 1.0,
+    payload: item.payload ?? {},
+    evidence: item.evidenceText != null ? parseEvidence(item.evidenceText) : item.evidence ?? {},
+    tags: (tagsText || '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({ name })),
+  };
+};
+
+const formatEvidenceText = (evidence) => {
+  if (!evidence || (typeof evidence === 'object' && Object.keys(evidence).length === 0)) {
+    return '';
+  }
+  if (typeof evidence === 'string') return evidence;
+  if (evidence?.basis && Object.keys(evidence).length === 1) {
+    return evidence.basis;
+  }
+  return JSON.stringify(evidence, null, 2);
+};
 
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, {
@@ -722,12 +738,24 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
   const updateField = (field, val) => {
     onChange({ ...value, [field]: val });
   };
+  const availableSchemas = schemaOptionsByKind[value.kind] || [];
 
   return (
     <div className="form-grid">
       <label>
         kind
-        <select value={value.kind} onChange={(e) => updateField('kind', e.target.value)}>
+        <select
+          value={value.kind}
+          onChange={(e) =>
+            onChange({
+              ...value,
+              kind: e.target.value,
+              schemaId: '',
+              payload: {},
+            })
+          }
+        >
+          <option value="">未選択</option>
           {kinds.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -737,12 +765,23 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
       </label>
       <label>
         schema_id
-        <input
-          type="text"
-          value={value.schemaId || ''}
-          onChange={(e) => updateField('schemaId', e.target.value)}
-          placeholder="例: summary/decision"
-        />
+        <select
+          value={value.schemaId}
+          onChange={(e) =>
+            onChange({
+              ...value,
+              schemaId: e.target.value,
+              payload: buildDefaultPayload(e.target.value),
+            })
+          }
+        >
+          <option value="">未選択</option>
+          {availableSchemas.map((schema) => (
+            <option key={schema} value={schema}>
+              {schema}
+            </option>
+          ))}
+        </select>
       </label>
       <label className="full">
         title
@@ -760,31 +799,33 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
         tags（カンマ区切り）
         <input
           type="text"
-          value={value.tags?.join(', ') || ''}
-          onChange={(e) => updateField('tags', e.target.value.split(',').map((t) => t.trim()).filter(Boolean))}
+          value={value.tagsText ?? ''}
+          onChange={(e) => updateField('tagsText', e.target.value)}
+        />
+      </label>
+      <label className="full">
+        evidence
+        <textarea
+          rows={2}
+          value={value.evidenceText ?? ''}
+          onChange={(e) => updateField('evidenceText', e.target.value)}
         />
       </label>
       <label>
         confidence
         <input
-          type="range"
+          type="number"
           min="0"
           max="1"
           step="0.01"
-          value={value.confidence ?? 0}
+          value={value.confidence ?? 1.0}
           onChange={(e) => updateField('confidence', Number(e.target.value))}
         />
-        <span className="muted small">{Math.round((value.confidence ?? 0) * 100)}%</span>
       </label>
 
-      <div className="full">
-        <Collapsible title="payload (JSON)" defaultOpen={false}>
-          <textarea
-            rows={6}
-            value={value.payloadText ?? JSON.stringify(value.payload ?? {}, null, 2)}
-            onChange={(e) => updateField('payloadText', e.target.value)}
-          />
-        </Collapsible>
+      <div className="payload-editor full">
+        <h4>payload</h4>
+        <PayloadEditor schemaId={value.schemaId} value={value.payload} onChange={(next) => updateField('payload', next)} />
       </div>
 
       <div className="stable-key full">
@@ -812,32 +853,24 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
 function EditView({ item, onSave, onCancel, onSaveAndClose }) {
   const [draft, setDraft] = useState({
     ...item,
-    payloadText: item?.payload ? JSON.stringify(item.payload, null, 2) : '{}',
+    tagsText: item?.tags?.join(', ') || '',
+    evidenceText: formatEvidenceText(item?.evidence),
   });
 
   useEffect(() => {
     setDraft({
       ...item,
-      payloadText: item?.payload ? JSON.stringify(item.payload, null, 2) : '{}',
+      tagsText: item?.tags?.join(', ') || '',
+      evidenceText: formatEvidenceText(item?.evidence),
     });
   }, [item]);
 
   const save = () => {
-    try {
-      const payload = JSON.parse(draft.payloadText || '{}');
-      onSave({ ...draft, payload });
-    } catch (e) {
-      alert('payload の JSON が正しくありません');
-    }
+    onSave(draft);
   };
 
   const saveAndClose = () => {
-    try {
-      const payload = JSON.parse(draft.payloadText || '{}');
-      onSaveAndClose({ ...draft, payload });
-    } catch (e) {
-      alert('payload の JSON が正しくありません');
-    }
+    onSaveAndClose(draft);
   };
 
   return (
@@ -1624,6 +1657,88 @@ function ImportWizard({ onClose }) {
             </div>
           </Collapsible>
 
+          {selectedChunk ? (
+            <div className="chunk-view">
+              <div className="chunk-toolbar">
+                <div className="chunk-title">
+                  <strong>Chunk {selectedChunkIndex + 1}</strong>
+                  <span className="muted small">/ {chunks.length} (tmp_id {selectedChunk.chunkTmpId})</span>
+                </div>
+                <div className="chunk-toolbar-actions">
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={showSkipped}
+                      onChange={(e) => setShowSkipped(e.target.checked)}
+                    />
+                    SKIP表示
+                  </label>
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={showMarkerOnly}
+                      onChange={(e) => setShowMarkerOnly(e.target.checked)}
+                    />
+                    マーカーだけ表示
+                  </label>
+                  <button className="ghost danger" onClick={handleSkipChunk}>
+                    このchunkをSKIP
+                  </button>
+                </div>
+              </div>
+              <div className="chunk-messages">
+                {selectedChunk.messages.length ? (
+                  selectedChunk.messages.map((message, messageIndex) => (
+                    <div key={`${message.message_id}-${messageIndex}`} className="message-group">
+                      <div className="message-line header">
+                        <strong>{`${message.message_id} - ${message.speaker}`}</strong>
+                      </div>
+                      {message.content.map((line, lineIndex) => {
+                        const lineId = `${message.message_id}-${lineIndex}`;
+                        const state = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
+                        const isMarked = state.marker;
+                        const isSkipped = state.skip;
+                        const shouldShow = (showMarkerOnly ? isMarked : true) && (showSkipped ? true : !isSkipped);
+                        if (!shouldShow) return null;
+                        return (
+                          <div
+                            key={lineId}
+                            className={`message-line content ${isMarked ? 'marked' : ''} ${isSkipped ? 'skipped' : ''}`}
+                          >
+                            <div className="message-actions">
+                              <button
+                                className={`icon-button ${isMarked ? 'active' : ''}`}
+                                type="button"
+                                onClick={() => toggleMarker(lineId)}
+                              >
+                                ⭐
+                              </button>
+                              <button
+                                className={`icon-button ${isSkipped ? 'active' : ''}`}
+                                type="button"
+                                onClick={() => toggleSkip(lineId)}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                            <span className={line === '' ? 'muted' : ''}>{`${message.message_id} - ${
+                              line === '' ? '（空白）' : line
+                            }`}</span>
+                          </div>
+                        );
+                      })}
+                      <div className="message-gap" />
+                    </div>
+                  ))
+                ) : (
+                  <p className="muted small">このchunkにはメッセージがありません。</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="muted">入力 JSON を読み込むと chunk が表示されます。</p>
+          )}
+
           <h4>chunk 情報</h4>
           <div className="form-grid">
             <label>
@@ -1691,84 +1806,6 @@ function ImportWizard({ onClose }) {
               />
             </label>
           </div>
-
-          {selectedChunk ? (
-            <div className="chunk-view">
-              <div className="chunk-toolbar">
-                <div className="chunk-title">
-                  <strong>Chunk {selectedChunkIndex + 1}</strong>
-                  <span className="muted small">/ {chunks.length} (tmp_id {selectedChunk.chunkTmpId})</span>
-                </div>
-                <div className="chunk-toolbar-actions">
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={showSkipped}
-                      onChange={(e) => setShowSkipped(e.target.checked)}
-                    />
-                    SKIP表示
-                  </label>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={showMarkerOnly}
-                      onChange={(e) => setShowMarkerOnly(e.target.checked)}
-                    />
-                    マーカーだけ表示
-                  </label>
-                  <button className="ghost danger" onClick={handleSkipChunk}>
-                    このchunkをSKIP
-                  </button>
-                </div>
-              </div>
-              <div className="chunk-messages">
-                {selectedChunk.messages.map((message, messageIndex) => (
-                  <div key={`${message.message_id}-${messageIndex}`} className="message-group">
-                    <div className="message-line header">
-                      <strong>{`${message.message_id} - ${message.speaker}`}</strong>
-                    </div>
-                    {message.content.map((line, lineIndex) => {
-                      const lineId = `${message.message_id}-${lineIndex}`;
-                      const state = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
-                      const isMarked = state.marker;
-                      const isSkipped = state.skip;
-                      const shouldShow = (showMarkerOnly ? isMarked : true) && (showSkipped ? true : !isSkipped);
-                      if (!shouldShow) return null;
-                      return (
-                        <div
-                          key={lineId}
-                          className={`message-line content ${isMarked ? 'marked' : ''} ${isSkipped ? 'skipped' : ''}`}
-                        >
-                          <div className="message-actions">
-                            <button
-                              className={`icon-button ${isMarked ? 'active' : ''}`}
-                              type="button"
-                              onClick={() => toggleMarker(lineId)}
-                            >
-                              ⭐
-                            </button>
-                            <button
-                              className={`icon-button ${isSkipped ? 'active' : ''}`}
-                              type="button"
-                              onClick={() => toggleSkip(lineId)}
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                          <span className={line === '' ? 'muted' : ''}>{`${message.message_id} - ${
-                            line === '' ? '（空白）' : line
-                          }`}</span>
-                        </div>
-                      );
-                    })}
-                    <div className="message-gap" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <p className="muted">入力 JSON を読み込むと chunk が表示されます。</p>
-          )}
         </div>
 
         <div className="import-right">
@@ -2021,7 +2058,7 @@ export default function App() {
     const now = new Date().toISOString().slice(0, 10);
     setSelectedItem({
       id: null,
-      kind: 'knowledge',
+      kind: '',
       schemaId: '',
       title: '',
       domain: '',
