@@ -11,6 +11,144 @@ const sortOptions = [
 ];
 const pageSizes = [10, 20, 50];
 const emptyLinks = { born_from: [], related: [], contradicts: [], supersedes: [] };
+const schemaOptionsByKind = {
+  knowledge: ['knowledge/fact.v1', 'knowledge/howto.v1', 'knowledge/definition.v1', 'knowledge/rule_of_thumb.v1'],
+  value: ['value/state.v1'],
+  summary: ['summary/discussion.v1', 'summary/compare.v1'],
+  model: ['model/hypothesis.v1', 'model/structure.v1'],
+  decision: ['decision/core.v1'],
+  term: ['term/glossary.v1'],
+  correction: ['correction/update.v1'],
+};
+const payloadSchemaConfig = {
+  'knowledge/fact.v1': [
+    { key: 'notes', label: 'notes', type: 'string' },
+    { key: 'caveats', label: 'caveats', type: 'stringList' },
+  ],
+  'knowledge/howto.v1': [
+    {
+      key: 'steps',
+      label: 'steps',
+      type: 'objectList',
+      fields: [
+        { key: 'n', label: 'n', type: 'number' },
+        { key: 'text', label: 'text', type: 'string' },
+      ],
+    },
+    { key: 'prerequisites', label: 'prerequisites', type: 'stringList' },
+    { key: 'pitfalls', label: 'pitfalls', type: 'stringList' },
+    { key: 'variants', label: 'variants', type: 'stringList' },
+  ],
+  'knowledge/definition.v1': [
+    { key: 'term', label: 'term', type: 'string' },
+    { key: 'definition', label: 'definition', type: 'string' },
+    { key: 'synonyms', label: 'synonyms', type: 'stringList' },
+    { key: 'anti_examples', label: 'anti_examples', type: 'stringList' },
+  ],
+  'knowledge/rule_of_thumb.v1': [
+    { key: 'rule', label: 'rule', type: 'string' },
+    { key: 'when_applies', label: 'when_applies', type: 'stringList' },
+    { key: 'exceptions', label: 'exceptions', type: 'stringList' },
+  ],
+  'value/state.v1': [
+    { key: 'scope', label: 'scope', type: 'string' },
+    { key: 'stance', label: 'stance', type: 'string' },
+    { key: 'rationale', label: 'rationale', type: 'stringList' },
+    { key: 'boundaries', label: 'boundaries', type: 'stringList' },
+    { key: 'updated_reason', label: 'updated_reason', type: 'string' },
+  ],
+  'summary/discussion.v1': [
+    { key: 'context', label: 'context', type: 'string' },
+    { key: 'points', label: 'points', type: 'stringList' },
+    { key: 'conclusion', label: 'conclusion', type: 'string' },
+    { key: 'open_questions', label: 'open_questions', type: 'stringList' },
+  ],
+  'summary/compare.v1': [
+    {
+      key: 'compared',
+      label: 'compared',
+      type: 'objectList',
+      fields: [
+        { key: 'option', label: 'option', type: 'string' },
+        { key: 'pros', label: 'pros', type: 'stringList' },
+        { key: 'cons', label: 'cons', type: 'stringList' },
+      ],
+    },
+    { key: 'conclusion', label: 'conclusion', type: 'string' },
+  ],
+  'model/hypothesis.v1': [
+    { key: 'hypothesis', label: 'hypothesis', type: 'string' },
+    { key: 'assumptions', label: 'assumptions', type: 'stringList' },
+    { key: 'implications', label: 'implications', type: 'stringList' },
+    { key: 'falsifiers', label: 'falsifiers', type: 'stringList' },
+  ],
+  'model/structure.v1': [
+    {
+      key: 'entities',
+      label: 'entities',
+      type: 'objectList',
+      fields: [
+        { key: 'name', label: 'name', type: 'string' },
+        { key: 'type', label: 'type', type: 'string' },
+        { key: 'note', label: 'note', type: 'string' },
+      ],
+    },
+    {
+      key: 'relations',
+      label: 'relations',
+      type: 'objectList',
+      fields: [
+        { key: 'from', label: 'from', type: 'string' },
+        { key: 'to', label: 'to', type: 'string' },
+        { key: 'type', label: 'type', type: 'string' },
+        { key: 'note', label: 'note', type: 'string' },
+      ],
+    },
+    { key: 'assumptions', label: 'assumptions', type: 'stringList' },
+  ],
+  'decision/core.v1': [
+    { key: 'decision', label: 'decision', type: 'string' },
+    { key: 'options', label: 'options', type: 'stringList' },
+    { key: 'reasons', label: 'reasons', type: 'stringList' },
+    { key: 'time_hint', label: 'time_hint', type: 'string' },
+    {
+      key: 'impact_scope',
+      label: 'impact_scope',
+      type: 'stringList',
+      options: ['仕事', '創作', '生活', '対人', '健康', 'その他'],
+    },
+  ],
+  'term/glossary.v1': [
+    { key: 'term', label: 'term', type: 'string' },
+    { key: 'meaning', label: 'meaning', type: 'string' },
+    { key: 'examples', label: 'examples', type: 'stringList' },
+    { key: 'related_terms', label: 'related_terms', type: 'stringList' },
+  ],
+  'correction/update.v1': [
+    { key: 'what_changed', label: 'what_changed', type: 'string' },
+    { key: 'previous_view', label: 'previous_view', type: 'string' },
+    { key: 'new_view', label: 'new_view', type: 'string' },
+    { key: 'why', label: 'why', type: 'string' },
+  ],
+};
+
+const buildDefaultPayload = (schemaId) => {
+  const config = payloadSchemaConfig[schemaId] || [];
+  return config.reduce((acc, field) => {
+    if (field.type === 'string' || field.type === 'number') {
+      acc[field.key] = '';
+    } else if (field.type === 'stringList' || field.type === 'objectList') {
+      acc[field.key] = [];
+    }
+    return acc;
+  }, {});
+};
+
+const coerceContentLines = (content) => {
+  if (Array.isArray(content)) return content;
+  if (content == null) return [];
+  return String(content).split(/\r?\n/);
+};
 
 const normalizeTags = (tags) => {
   if (!tags) return [];
@@ -118,6 +256,247 @@ function Collapsible({ title, children, defaultOpen = false }) {
         <span>{open ? '▲' : '▼'}</span>
       </button>
       {open && <div className="collapsible-body">{children}</div>}
+    </div>
+  );
+}
+
+function StringListInput({ label, value = [], onChange, options }) {
+  const entries = value.length ? value : [''];
+  const updateEntry = (index, nextValue) => {
+    const next = [...entries];
+    next[index] = nextValue;
+    onChange(next.filter((item) => item !== ''));
+  };
+  const addEntry = () => onChange([...value, '']);
+  const removeEntry = (index) => {
+    const next = [...value];
+    next.splice(index, 1);
+    onChange(next);
+  };
+
+  return (
+    <div className="field-group">
+      <span className="label">{label}</span>
+      <div className="list-input">
+        {entries.map((entry, index) => (
+          <div key={`${label}-${index}`} className="list-row">
+            {options ? (
+              <select value={entry} onChange={(e) => updateEntry(index, e.target.value)}>
+                <option value="">未選択</option>
+                {options.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input type="text" value={entry} onChange={(e) => updateEntry(index, e.target.value)} />
+            )}
+            <button className="ghost tiny" type="button" onClick={() => removeEntry(index)}>
+              削除
+            </button>
+          </div>
+        ))}
+      </div>
+      <button className="ghost tiny" type="button" onClick={addEntry}>
+        + 追加
+      </button>
+    </div>
+  );
+}
+
+function ObjectListInput({ label, value = [], fields, onChange }) {
+  const addEntry = () => {
+    const next = [
+      ...value,
+      fields.reduce((acc, field) => {
+        acc[field.key] = field.type === 'stringList' ? [] : '';
+        return acc;
+      }, {}),
+    ];
+    onChange(next);
+  };
+  const updateEntry = (index, key, nextValue) => {
+    const next = value.map((entry, entryIndex) =>
+      entryIndex === index ? { ...entry, [key]: nextValue } : entry,
+    );
+    onChange(next);
+  };
+  const removeEntry = (index) => {
+    const next = [...value];
+    next.splice(index, 1);
+    onChange(next);
+  };
+
+  return (
+    <div className="field-group">
+      <span className="label">{label}</span>
+      <div className="object-list">
+        {value.map((entry, index) => (
+          <div key={`${label}-${index}`} className="object-card">
+            {fields.map((field) => (
+              <div key={field.key} className="object-field">
+                <span className="label">{field.label}</span>
+                {field.type === 'stringList' ? (
+                  <StringListInput
+                    label=""
+                    value={entry[field.key] || []}
+                    onChange={(nextValue) => updateEntry(index, field.key, nextValue)}
+                  />
+                ) : (
+                  <input
+                    type={field.type === 'number' ? 'number' : 'text'}
+                    value={entry[field.key] || ''}
+                    onChange={(e) => updateEntry(index, field.key, e.target.value)}
+                  />
+                )}
+              </div>
+            ))}
+            <button className="ghost tiny danger" type="button" onClick={() => removeEntry(index)}>
+              行を削除
+            </button>
+          </div>
+        ))}
+      </div>
+      <button className="ghost tiny" type="button" onClick={addEntry}>
+        + 行を追加
+      </button>
+    </div>
+  );
+}
+
+function PayloadEditor({ schemaId, value, onChange }) {
+  const config = payloadSchemaConfig[schemaId] || [];
+  if (!schemaId) {
+    return <p className="muted small">schema_id を選択すると payload 入力フォームが表示されます。</p>;
+  }
+  if (!config.length) {
+    return <p className="muted small">この schema_id の payload 定義はありません。</p>;
+  }
+
+  const updateField = (key, nextValue) => {
+    onChange({ ...value, [key]: nextValue });
+  };
+
+  return (
+    <div className="payload-grid">
+      {config.map((field) => {
+        if (field.type === 'string') {
+          return (
+            <label key={field.key} className="full">
+              {field.label}
+              <input
+                type="text"
+                value={value?.[field.key] || ''}
+                onChange={(e) => updateField(field.key, e.target.value)}
+              />
+            </label>
+          );
+        }
+        if (field.type === 'number') {
+          return (
+            <label key={field.key}>
+              {field.label}
+              <input
+                type="number"
+                value={value?.[field.key] || ''}
+                onChange={(e) => updateField(field.key, Number(e.target.value))}
+              />
+            </label>
+          );
+        }
+        if (field.type === 'stringList') {
+          return (
+            <StringListInput
+              key={field.key}
+              label={field.label}
+              value={value?.[field.key] || []}
+              options={field.options}
+              onChange={(nextValue) => updateField(field.key, nextValue)}
+            />
+          );
+        }
+        if (field.type === 'objectList') {
+          return (
+            <ObjectListInput
+              key={field.key}
+              label={field.label}
+              value={value?.[field.key] || []}
+              fields={field.fields || []}
+              onChange={(nextValue) => updateField(field.key, nextValue)}
+            />
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function PayloadDisplay({ schemaId, payload }) {
+  const config = payloadSchemaConfig[schemaId] || [];
+  if (!schemaId || !config.length) {
+    return <pre>{JSON.stringify(payload, null, 2)}</pre>;
+  }
+
+  const renderStringList = (items) => {
+    if (!items?.length) return <span className="muted small">なし</span>;
+    return (
+      <ul className="list">
+        {items.map((item, idx) => (
+          <li key={`${item}-${idx}`}>{item}</li>
+        ))}
+      </ul>
+    );
+  };
+
+  return (
+    <div className="payload-display">
+      {config.map((field) => {
+        if (field.type === 'string' || field.type === 'number') {
+          return (
+            <div key={field.key} className="payload-row">
+              <span className="label">{field.label}</span>
+              <span>{payload?.[field.key] || 'なし'}</span>
+            </div>
+          );
+        }
+        if (field.type === 'stringList') {
+          return (
+            <div key={field.key} className="payload-row">
+              <span className="label">{field.label}</span>
+              {renderStringList(payload?.[field.key] || [])}
+            </div>
+          );
+        }
+        if (field.type === 'objectList') {
+          const entries = payload?.[field.key] || [];
+          return (
+            <div key={field.key} className="payload-row">
+              <span className="label">{field.label}</span>
+              {entries.length ? (
+                <div className="payload-object-list">
+                  {entries.map((entry, index) => (
+                    <div key={`${field.key}-${index}`} className="payload-object-card">
+                      {field.fields?.map((subField) => (
+                        <div key={subField.key} className="payload-sub-row">
+                          <span className="label">{subField.label}</span>
+                          {subField.type === 'stringList'
+                            ? renderStringList(entry?.[subField.key] || [])
+                            : entry?.[subField.key] || 'なし'}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span className="muted small">なし</span>
+              )}
+            </div>
+          );
+        }
+        return null;
+      })}
     </div>
   );
 }
@@ -256,9 +635,6 @@ function SearchView({
 }
 
 function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, onClone, onDelete, isLoading }) {
-  const [showPayload, setShowPayload] = useState(false);
-  const [showEvidence, setShowEvidence] = useState(false);
-
   if (!item) return null;
 
   return (
@@ -310,8 +686,8 @@ function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, onClone, onDe
             <h3>本文</h3>
             <p className="body-text">{item.body}</p>
 
-            <Collapsible title="payload (JSON)" defaultOpen={false}>
-              <pre>{JSON.stringify(item.payload, null, 2)}</pre>
+            <Collapsible title="payload" defaultOpen={false}>
+              <PayloadDisplay schemaId={item.schemaId} payload={item.payload} />
             </Collapsible>
 
             {item.evidence?.basis && (
@@ -808,8 +1184,7 @@ function InputJsonGenerator({ onClose }) {
 
     const flushMessage = () => {
       if (!currentSpeaker) return;
-      const content = currentLines.join('\n');
-      messages.push({ speaker: currentSpeaker, content });
+      messages.push({ speaker: currentSpeaker, content: [...currentLines] });
     };
 
     const matchSpeakerLine = (line) => {
@@ -853,7 +1228,7 @@ function InputJsonGenerator({ onClose }) {
     }
 
     const outputJson = {
-      input_version: '1.0',
+      input_version: '1.1',
       chunks,
     };
     setMessagesCount(messages.length);
@@ -879,7 +1254,7 @@ function InputJsonGenerator({ onClose }) {
       <div className="panel-header">
         <div>
           <h2>入力JSON生成</h2>
-          <p className="muted">生テキストから入力 JSON (v1.0) を生成します。</p>
+          <p className="muted">生テキストから入力 JSON (v1.1) を生成します。</p>
         </div>
         <div className="actions">
           <button className="ghost" onClick={() => setShowSpeakerModal(true)}>
@@ -970,7 +1345,7 @@ function MessageDrawer({ title, messages, onClose }) {
                 <div className="message-speaker">
                   <strong>{msg.speaker || msg.role || 'unknown'}</strong>
                 </div>
-                <pre className="message-content">{msg.content}</pre>
+                <pre className="message-content">{coerceContentLines(msg.content).join('\n')}</pre>
               </div>
             ))
           ) : (
@@ -983,231 +1358,233 @@ function MessageDrawer({ title, messages, onClose }) {
 }
 
 function ImportWizard({ onClose }) {
-  const [extractionRawJson, setExtractionRawJson] = useState('');
+  const createDefaultChunkForm = () => ({
+    source_type: 'chatgpt text',
+    hint: '',
+    locatorMessageIds: '',
+    turnRangeStart: '',
+    turnRangeEnd: '',
+    exportPath: '',
+    timeRangeStart: '',
+    timeRangeEnd: '',
+  });
+  const createDefaultItem = () => ({
+    stableKey: '',
+    kind: '',
+    schemaId: '',
+    title: '',
+    body: '',
+    domain: '',
+    tagsText: '',
+    evidenceText: '',
+    payload: {},
+    confidence: 1.0,
+  });
+
   const [inputRawJson, setInputRawJson] = useState('');
-  const [candidates, setCandidates] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [jobId, setJobId] = useState(null);
-  const [isLoadingJob, setIsLoadingJob] = useState(false);
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [stableKeyMatches, setStableKeyMatches] = useState({});
-  const [comparison, setComparison] = useState(null);
   const [chunks, setChunks] = useState([]);
   const [selectedChunkIndex, setSelectedChunkIndex] = useState(0);
-  const [messageDrawerData, setMessageDrawerData] = useState(null);
-  const [inputChunksMap, setInputChunksMap] = useState({});
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [lineStates, setLineStates] = useState({});
+  const [showSkipped, setShowSkipped] = useState(false);
+  const [showMarkerOnly, setShowMarkerOnly] = useState(false);
+  const [chunkForm, setChunkForm] = useState(createDefaultChunkForm);
+  const [items, setItems] = useState([]);
+  const [selectedItemIndex, setSelectedItemIndex] = useState(null);
+  const [draftItem, setDraftItem] = useState(createDefaultItem);
+  const [isLoadingInput, setIsLoadingInput] = useState(false);
+  const [isCommitting, setIsCommitting] = useState(false);
 
-  const selected = candidates.find((c) => c.candidateId === selectedId);
+  const selectedChunk = chunks[selectedChunkIndex] || null;
 
-  const mapCandidateFromApi = (cand) => {
-    const item = cand.item || {};
-    return {
-      candidateId: cand.candidate_id,
-      keep: cand.decision !== 'SKIP',
-      skipType: cand.skip_type || 'NONE',
-      reason: cand.reason || '',
-      chunkIndex: item._chunk_index ?? item.chunk_index ?? 0,
-      item: {
-        id: item.item_id || item.id || '',
-        kind: item.kind || 'knowledge',
-        schemaId: item.schema_id || '',
-        title: item.title || '',
-        body: item.body || '',
-        domain: item.domain || '',
-        tags: normalizeTags(item.tags),
-        confidence: item.confidence ?? 0,
-        payload: item.payload || {},
-        payloadText: JSON.stringify(item.payload || {}, null, 2),
-        evidence: item.evidence || {},
-        stableKey: item.stable_key || '',
-        stableKeySuggested: item.stable_key_suggested || '',
-        links: item.links || [],
-      },
-    };
+  const resetChunkState = () => {
+    setChunkForm(createDefaultChunkForm());
+    setItems([]);
+    setSelectedItemIndex(null);
+    setDraftItem(createDefaultItem());
+    setShowSkipped(false);
+    setShowMarkerOnly(false);
   };
 
-  const loadJob = async (id) => {
-    setIsLoadingJob(true);
-    setComparison(null);
-    setStableKeyMatches({});
-    setMessageDrawerData(null);
+  const resetAll = () => {
+    setInputRawJson('');
+    setChunks([]);
+    setSelectedChunkIndex(0);
+    setLineStates({});
+    resetChunkState();
+  };
+
+  const startImport = () => {
+    if (!inputRawJson.trim()) {
+      alert('入力 JSON を貼り付けてください');
+      return;
+    }
+    setIsLoadingInput(true);
     try {
-      const data = await fetchJson(`${API_BASE}/api/import/jobs/${id}`);
-      const mapped = (data.candidates || []).map((c) => mapCandidateFromApi(c));
-      const source = data.job?.source || {};
-      const sourceChunks = Array.isArray(source.chunks) ? source.chunks : [{ source }];
-      const chunkCandidates = mapped.reduce((acc, cand) => {
-        const index = cand.chunkIndex || 0;
-        acc[index] = acc[index] || [];
-        acc[index].push(cand);
-        return acc;
-      }, {});
-      const mappedChunks = sourceChunks.map((chunk, index) => {
+      const parsedInput = JSON.parse(inputRawJson);
+      const inputChunks = Array.isArray(parsedInput.chunks) ? parsedInput.chunks : [];
+      if (!inputChunks.length) {
+        alert('chunks が見つかりませんでした');
+        setIsLoadingInput(false);
+        return;
+      }
+      const mappedChunks = inputChunks.map((chunk, index) => {
         const chunkTmpId = chunk.chunk_tmp_id ?? chunk.chunks_tmp_id ?? chunk.chunk_id ?? index + 1;
-        return {
-          index,
-          chunkTmpId: String(chunkTmpId),
-          source: chunk.source || {},
-          classification: chunk.classification || {},
-          itemsCount: chunkCandidates[index]?.length || 0,
-        };
+        const messages = (chunk.messages || []).map((message) => ({
+          ...message,
+          content: coerceContentLines(message.content),
+        }));
+        return { chunkTmpId: String(chunkTmpId), messages };
       });
-      const matches = {};
-      Object.entries(data.stable_key_matches || {}).forEach(([key, raw]) => {
-        const display = toDisplayItem(raw);
-        if (display) matches[key] = display;
-      });
-      setStableKeyMatches(matches);
-      setCandidates(mapped);
       setChunks(mappedChunks);
-      const initialChunkIndex = mappedChunks[0]?.index || 0;
-      setSelectedChunkIndex(initialChunkIndex);
-      const firstCandidate = mapped.find((c) => c.chunkIndex === initialChunkIndex);
-      setSelectedId(firstCandidate?.candidateId || null);
+      setSelectedChunkIndex(0);
+      setLineStates({});
+      resetChunkState();
     } catch (err) {
-      console.error(err);
-      showApiError(err, 'インポートジョブの取得に失敗しました');
+      alert('入力 JSON のパースに失敗しました');
     } finally {
-      setIsLoadingJob(false);
+      setIsLoadingInput(false);
     }
   };
 
-  useEffect(() => {
-    const chunkCandidates = candidates.filter((c) => c.chunkIndex === selectedChunkIndex);
-    if (!chunkCandidates.find((c) => c.candidateId === selectedId)) {
-      setSelectedId(chunkCandidates[0]?.candidateId || null);
-    }
-  }, [selectedChunkIndex, candidates, selectedId]);
+  const updateLineState = (lineId, nextState) => {
+    setLineStates((prev) => {
+      const chunkStates = { ...(prev[selectedChunkIndex] || {}) };
+      const current = chunkStates[lineId] || { marker: false, skip: false };
+      chunkStates[lineId] = { ...current, ...nextState };
+      return { ...prev, [selectedChunkIndex]: chunkStates };
+    });
+  };
 
-  const startImport = async () => {
-    if (!extractionRawJson.trim()) {
-      alert('抽出 JSON を貼り付けてください');
+  const toggleMarker = (lineId) => {
+    const current = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
+    updateLineState(lineId, current.marker ? { marker: false } : { marker: true, skip: false });
+  };
+
+  const toggleSkip = (lineId) => {
+    const current = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
+    updateLineState(lineId, current.skip ? { skip: false } : { skip: true, marker: false });
+  };
+
+  const goToNextChunk = () => {
+    const nextIndex = selectedChunkIndex + 1;
+    if (nextIndex < chunks.length) {
+      setSelectedChunkIndex(nextIndex);
+      resetChunkState();
       return;
     }
-    let parsed;
-    try {
-      parsed = JSON.parse(extractionRawJson);
-    } catch (err) {
-      alert('抽出 JSON のパースに失敗しました');
+    resetAll();
+  };
+
+  const handleSkipChunk = () => {
+    if (items.length) {
+      alert('このchunkには item が存在します。すべて削除してから SKIP してください。');
       return;
     }
-    if (inputRawJson.trim()) {
-      try {
-        const parsedInput = JSON.parse(inputRawJson);
-        const inputChunks = Array.isArray(parsedInput.chunks) ? parsedInput.chunks : [];
-        const mappedInputChunks = {};
-        inputChunks.forEach((chunk) => {
-          const chunkTmpId = chunk.chunk_tmp_id ?? chunk.chunks_tmp_id ?? chunk.chunk_id;
-          if (chunkTmpId != null) {
-            mappedInputChunks[String(chunkTmpId)] = chunk;
-          }
-        });
-        setInputChunksMap(mappedInputChunks);
-      } catch (err) {
-        alert('入力 JSON のパースに失敗しました');
-        return;
-      }
+    goToNextChunk();
+  };
+
+  const handleSaveItem = () => {
+    if (selectedItemIndex == null) {
+      setItems((prev) => [...prev, draftItem]);
     } else {
-      setInputChunksMap({});
+      setItems((prev) => prev.map((item, idx) => (idx === selectedItemIndex ? draftItem : item)));
     }
-    const extraction = parsed.extraction || parsed;
-    try {
-      const res = await fetchJson(`${API_BASE}/api/import/jobs`, {
-        method: 'POST',
-        body: JSON.stringify({ extraction }),
-      });
-      setJobId(res.job_id);
-      await loadJob(res.job_id);
-    } catch (err) {
-      console.error(err);
-      showApiError(err, 'インポートジョブの作成に失敗しました');
+    setSelectedItemIndex(null);
+    setDraftItem(createDefaultItem());
+  };
+
+  const handleDeleteItem = (index) => {
+    setItems((prev) => prev.filter((_, idx) => idx != index));
+    if (selectedItemIndex === index) {
+      setSelectedItemIndex(null);
+      setDraftItem(createDefaultItem());
     }
   };
 
-  const persistCandidate = async (candidate) => {
-    if (!jobId) return;
-    let payloadObj = candidate.item.payload || {};
-    if (candidate.item.payloadText) {
-      try {
-        payloadObj = JSON.parse(candidate.item.payloadText || '{}');
-      } catch (err) {
-        alert('payload の JSON が正しくありません');
-        return;
-      }
-    }
+  const handleEditItem = (index) => {
+    setSelectedItemIndex(index);
+    setDraftItem(items[index]);
+  };
 
-    const itemPayload = {
-      item_id: candidate.item.id || undefined,
-      _chunk_index: candidate.chunkIndex ?? 0,
-      stable_key: candidate.item.stableKey || null,
-      kind: candidate.item.kind,
-      schema_id: candidate.item.schemaId,
-      title: candidate.item.title,
-      body: candidate.item.body,
-      domain: candidate.item.domain || null,
-      tags: (candidate.item.tags || [])
-        .map((name) => ({ name: typeof name === 'string' ? name : name?.name || '' }))
-        .filter((t) => t.name),
-      evidence: candidate.item.evidence || {},
-      payload: payloadObj,
-      confidence: candidate.item.confidence ?? 0,
-      links: candidate.item.links || [],
-      stable_key_suggested: candidate.item.stableKeySuggested || undefined,
+  const parseMaybeNumber = (value) => {
+    if (!value) return null;
+    const num = Number(value);
+    return Number.isNaN(num) ? value : num;
+  };
+
+  const buildChunkSource = () => {
+    const messageIds = chunkForm.locatorMessageIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const locator = {};
+    const turnRange = {};
+    const start = parseMaybeNumber(chunkForm.turnRangeStart);
+    const end = parseMaybeNumber(chunkForm.turnRangeEnd);
+    if (start != null) turnRange.start = start;
+    if (end != null) turnRange.end = end;
+    if (messageIds.length) locator.message_ids = messageIds;
+    if (Object.keys(turnRange).length) locator.turn_range = turnRange;
+
+    const timeRange = {};
+    if (chunkForm.timeRangeStart) timeRange.start = chunkForm.timeRangeStart;
+    if (chunkForm.timeRangeEnd) timeRange.end = chunkForm.timeRangeEnd;
+
+    return {
+      source_type: chunkForm.source_type || 'chatgpt text',
+      hint: chunkForm.hint || undefined,
+      locator: Object.keys(locator).length ? locator : undefined,
+      export_path: chunkForm.exportPath || undefined,
+      time_range: Object.keys(timeRange).length ? timeRange : undefined,
+      messages: selectedChunk?.messages || [],
     };
-
-    try {
-      await fetchJson(`${API_BASE}/api/import/jobs/${jobId}/candidates/${candidate.candidateId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          decision: candidate.keep ? 'KEEP' : 'SKIP',
-          skip_type: candidate.skipType || 'NONE',
-          reason: candidate.reason || '',
-          item: itemPayload,
-        }),
-      });
-      setCandidates((prev) =>
-        prev.map((c) =>
-          c.candidateId === candidate.candidateId
-            ? { ...candidate, item: { ...candidate.item, payload: payloadObj, payloadText: JSON.stringify(payloadObj, null, 2) } }
-            : c,
-        ),
-      );
-    } catch (err) {
-      console.error(err);
-      showApiError(err, '候補の更新に失敗しました');
-    }
-  };
-
-  const updateCandidateItem = (candidateId, itemUpdate) => {
-    setCandidates((prev) => {
-      const next = prev.map((c) => (c.candidateId === candidateId ? { ...c, item: { ...c.item, ...itemUpdate } } : c));
-      const updated = next.find((c) => c.candidateId === candidateId);
-      if (updated) persistCandidate(updated);
-      return next;
-    });
-  };
-
-  const toggleKeep = (candidateId) => {
-    setCandidates((prev) => {
-      const next = prev.map((c) => (c.candidateId === candidateId ? { ...c, keep: !c.keep } : c));
-      const updated = next.find((c) => c.candidateId === candidateId);
-      if (updated) persistCandidate(updated);
-      return next;
-    });
   };
 
   const commit = async () => {
-    if (!jobId) {
-      alert('先に抽出 JSON を読み込んでください');
+    if (!selectedChunk) {
+      alert('先に入力 JSON を読み込んでください');
       return;
     }
+    if (!items.length) {
+      alert('item を追加してください');
+      return;
+    }
+    const invalid = items.find((item) => !item.kind || !item.schemaId);
+    if (invalid) {
+      alert('kind と schema_id を選択していない item があります');
+      return;
+    }
+
     setIsCommitting(true);
+    const chunkId = `chunk-${selectedChunk.chunkTmpId || selectedChunkIndex + 1}`;
+    const source = buildChunkSource();
     try {
-      const res = await fetchJson(`${API_BASE}/api/import/jobs/${jobId}/commit`, { method: 'POST' });
-      alert(
-        `コミット完了: inserted ${res.inserted}, updated ${res.updated}, skipped ${res.skipped}, links ${res.links_created}`,
-      );
+      for (const item of items) {
+        const payload = {
+          kind: item.kind,
+          schema_id: item.schemaId,
+          title: item.title || '',
+          body: item.body || '',
+          stable_key: item.stableKey || null,
+          domain: item.domain || null,
+          confidence: item.confidence ?? 1.0,
+          payload: item.payload || {},
+          evidence: parseEvidence(item.evidenceText),
+          tags: (item.tagsText || '')
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .map((name) => ({ name })),
+          chunk_id: chunkId,
+          source,
+        };
+        await fetchJson(`${API_BASE}/api/items`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
+      alert(`保存完了: ${items.length} item を登録しました。`);
+      goToNextChunk();
     } catch (err) {
       console.error(err);
       showApiError(err, 'コミットに失敗しました');
@@ -1216,192 +1593,342 @@ function ImportWizard({ onClose }) {
     }
   };
 
-  const selectedChunk = chunks.find((chunk) => chunk.index === selectedChunkIndex) || null;
-  const chunkCandidates = useMemo(
-    () => candidates.filter((cand) => cand.chunkIndex === selectedChunkIndex),
-    [candidates, selectedChunkIndex],
-  );
-  const resolveMessagesForChunk = (chunk) => {
-    if (!chunk) return [];
-    return inputChunksMap[chunk.chunkTmpId]?.messages || [];
-  };
+  const availableSchemas = schemaOptionsByKind[draftItem.kind] || [];
 
   return (
-    <>
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Import Wizard</h2>
-            <p className="muted small">抽出 JSON の貼り付け、候補レビュー、コミットまでを行います。</p>
-          </div>
-          <button className="ghost" onClick={onClose}>
-            閉じる
-          </button>
+    <div className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Import</h2>
+          <p className="muted small">入力 JSON を読み込み、chunk と item を手動で登録します。</p>
+        </div>
+        <button className="ghost" onClick={onClose}>
+          閉じる
+        </button>
+      </div>
+
+      <div className="import-layout">
+        <div className="import-left">
+          <Collapsible title="入力 JSON (v1.1)" defaultOpen={true}>
+            <textarea
+              rows={6}
+              placeholder="入力 JSON を貼り付けてください。"
+              value={inputRawJson}
+              onChange={(e) => setInputRawJson(e.target.value)}
+            />
+            <div className="actions">
+              <button className="primary" onClick={startImport} disabled={isLoadingInput}>
+                JSON を読み込む
+              </button>
+              {isLoadingInput && <span className="muted small">読み込み中...</span>}
+            </div>
+          </Collapsible>
+
+          {selectedChunk ? (
+            <div className="chunk-view">
+              <div className="chunk-toolbar">
+                <div className="chunk-title">
+                  <strong>Chunk {selectedChunkIndex + 1}</strong>
+                  <span className="muted small">/ {chunks.length} (tmp_id {selectedChunk.chunkTmpId})</span>
+                </div>
+                <div className="chunk-toolbar-actions">
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={showSkipped}
+                      onChange={(e) => setShowSkipped(e.target.checked)}
+                    />
+                    SKIP表示
+                  </label>
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={showMarkerOnly}
+                      onChange={(e) => setShowMarkerOnly(e.target.checked)}
+                    />
+                    マーカーだけ表示
+                  </label>
+                  <button className="ghost danger" onClick={handleSkipChunk}>
+                    このchunkをSKIP
+                  </button>
+                </div>
+              </div>
+              <div className="chunk-messages">
+                {selectedChunk.messages.map((message, messageIndex) => (
+                  <div key={`${message.message_id}-${messageIndex}`} className="message-group">
+                    <div className="message-line header">
+                      <strong>{`${message.message_id} - ${message.speaker}`}</strong>
+                    </div>
+                    {message.content.map((line, lineIndex) => {
+                      const lineId = `${message.message_id}-${lineIndex}`;
+                      const state = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
+                      const isMarked = state.marker;
+                      const isSkipped = state.skip;
+                      const shouldShow = (showMarkerOnly ? isMarked : true) && (showSkipped ? true : !isSkipped);
+                      if (!shouldShow) return null;
+                      return (
+                        <div
+                          key={lineId}
+                          className={`message-line content ${isMarked ? 'marked' : ''} ${isSkipped ? 'skipped' : ''}`}
+                        >
+                          <div className="message-actions">
+                            <button
+                              className={`icon-button ${isMarked ? 'active' : ''}`}
+                              type="button"
+                              onClick={() => toggleMarker(lineId)}
+                            >
+                              ⭐
+                            </button>
+                            <button
+                              className={`icon-button ${isSkipped ? 'active' : ''}`}
+                              type="button"
+                              onClick={() => toggleSkip(lineId)}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                          <span className={line === '' ? 'muted' : ''}>{`${message.message_id} - ${
+                            line === '' ? '（空白）' : line
+                          }`}</span>
+                        </div>
+                      );
+                    })}
+                    <div className="message-gap" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="muted">入力 JSON を読み込むと chunk が表示されます。</p>
+          )}
         </div>
 
-        <div className="import-layout">
-          <div className="import-left">
-            <Collapsible title="入力 JSON (v1.0)" defaultOpen={true}>
-              <textarea
-                rows={6}
-                placeholder="入力 JSON を貼り付けてください。"
-                value={inputRawJson}
-                onChange={(e) => setInputRawJson(e.target.value)}
+        <div className="import-right">
+          <h4>chunk 情報</h4>
+          <div className="form-grid">
+            <label>
+              source_type
+              <input
+                type="text"
+                value={chunkForm.source_type}
+                onChange={(e) => setChunkForm({ ...chunkForm, source_type: e.target.value })}
               />
-            </Collapsible>
-            <Collapsible title="抽出 JSON (v2.4)" defaultOpen={true}>
-              <textarea
-                rows={6}
-                placeholder="抽出 JSON を貼り付け、またはファイルから読み込みます。"
-                value={extractionRawJson}
-                onChange={(e) => setExtractionRawJson(e.target.value)}
+            </label>
+            <label>
+              hint
+              <input
+                type="text"
+                value={chunkForm.hint}
+                onChange={(e) => setChunkForm({ ...chunkForm, hint: e.target.value })}
               />
-              <div className="muted small">※ ファイル読み込みは未実装（MVP）。</div>
-              <div className="actions">
-                <button className="primary" onClick={startImport}>JSON を読み込む</button>
-                {isLoadingJob && <span className="muted small">読み込み中...</span>}
-              </div>
-            </Collapsible>
-
-            {jobId && <div className="muted small">job_id: {jobId}</div>}
-
-            <h4>chunks</h4>
-            <div className="chunk-list">
-              {chunks.map((chunk) => (
-                <div
-                  key={chunk.index}
-                  className={`chunk-card ${selectedChunkIndex === chunk.index ? 'active' : ''}`}
-                >
-                  <div className="chunk-header">
-                    <div className="left">
-                      <span className={`badge ${chunk.classification?.decision === 'SKIP' ? 'skip' : 'keep'}`}>
-                        {chunk.classification?.decision || 'KEEP'}
-                      </span>
-                      <strong>Chunk {chunk.index + 1}</strong>
-                      <span className="muted small">tmp_id {chunk.chunkTmpId}</span>
-                    </div>
-                    <span className="muted small">{chunk.itemsCount} items</span>
-                  </div>
-                  <div className="chunk-meta">
-                    <div>
-                      <span className="label">skip_type</span>
-                      <span>{chunk.classification?.skip_type || 'NONE'}</span>
-                    </div>
-                    <div>
-                      <span className="label">confidence</span>
-                      <span>{((chunk.classification?.confidence || 0) * 100).toFixed(0)}%</span>
-                    </div>
-                  </div>
-                  <p className="muted small">{chunk.classification?.reason || 'reason なし'}</p>
-                  <p className="muted small">{chunk.source?.hint || 'hint なし'}</p>
-                  <div className="candidate-actions">
-                    <button className="ghost tiny" onClick={() => setSelectedChunkIndex(chunk.index)}>
-                      選択して編集
-                    </button>
-                    <button
-                      className="ghost tiny"
-                      onClick={() =>
-                        setMessageDrawerData({
-                          title: `chunk_tmp_id ${chunk.chunkTmpId} messages`,
-                          messages: resolveMessagesForChunk(chunk),
-                        })
-                      }
-                    >
-                      メッセージ表示
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            </label>
+            <label className="full">
+              locator.message_ids（カンマ区切り）
+              <input
+                type="text"
+                value={chunkForm.locatorMessageIds}
+                onChange={(e) => setChunkForm({ ...chunkForm, locatorMessageIds: e.target.value })}
+              />
+            </label>
+            <label>
+              locator.turn_range.start
+              <input
+                type="text"
+                value={chunkForm.turnRangeStart}
+                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeStart: e.target.value })}
+              />
+            </label>
+            <label>
+              locator.turn_range.end
+              <input
+                type="text"
+                value={chunkForm.turnRangeEnd}
+                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeEnd: e.target.value })}
+              />
+            </label>
+            <label className="full">
+              export_path
+              <input
+                type="text"
+                value={chunkForm.exportPath}
+                onChange={(e) => setChunkForm({ ...chunkForm, exportPath: e.target.value })}
+              />
+            </label>
+            <label>
+              time_range.start
+              <input
+                type="text"
+                value={chunkForm.timeRangeStart}
+                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeStart: e.target.value })}
+              />
+            </label>
+            <label>
+              time_range.end
+              <input
+                type="text"
+                value={chunkForm.timeRangeEnd}
+                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeEnd: e.target.value })}
+              />
+            </label>
           </div>
 
-          <div className="import-right">
+          <div className="items-header">
             <h4>items</h4>
-            <div className="item-list">
-              {chunkCandidates.map((c) => (
-                <div key={c.candidateId} className={`item-card ${selectedId === c.candidateId ? 'active' : ''}`}>
-                  <div className="candidate-header">
-                    <div className="left">
-                      <button className={`pill-toggle ${c.keep ? 'keep' : 'skip'}`} onClick={() => toggleKeep(c.candidateId)}>
-                        {c.keep ? '✅ KEEP' : '❌ SKIP'}
-                      </button>
-                      <span className="badge subtle">{c.item.kind}</span>
-                      <strong>{c.item.title || '（titleなし）'}</strong>
-                    </div>
-                    <span className="muted small">confidence {(c.item.confidence * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="item-meta">
-                    <div>
-                      <span className="label">stable_key</span>
-                      <span>{c.item.stableKey || 'なし'}</span>
-                    </div>
-                    <div>
-                      <span className="label">domain</span>
-                      <span>{c.item.domain || 'なし'}</span>
-                    </div>
-                  </div>
-                  <p className="muted small preview-lines">{c.item.body}</p>
-                  <div className="candidate-actions">
-                    <button className="ghost tiny" onClick={() => setSelectedId(c.candidateId)}>
-                      選択して編集
-                    </button>
-                    {c.item.stableKey && stableKeyMatches[c.item.stableKey] && (
-                      <button
-                        className="ghost tiny"
-                        onClick={() =>
-                          setComparison({ candidate: c, existing: stableKeyMatches[c.item.stableKey] })
-                        }
-                      >
-                        DBと比較
-                      </button>
-                    )}
-                  </div>
+          </div>
+          <div className="item-list">
+            {items.length ? (
+              items.map((item, index) => (
+                <div key={`${item.title}-${index}`} className="item-card">
+                  <button className="ghost tiny" type="button" onClick={() => handleEditItem(index)}>
+                    {item.title || '（titleなし）'}
+                  </button>
+                  <span className="muted small">
+                    {item.kind || 'kind未選択'}
+                    {item.schemaId ? ` / ${item.schemaId}` : ''}
+                  </span>
+                  <button className="ghost tiny danger" type="button" onClick={() => handleDeleteItem(index)}>
+                    削除
+                  </button>
                 </div>
-              ))}
-            </div>
-            <h4>候補編集</h4>
-            {selected ? (
-              <div className="actions">
-                <button className="primary" onClick={() => setShowEditModal(true)}>
-                  候補を編集
-                </button>
-              </div>
+              ))
             ) : (
-              <p className="muted">候補を選択してください。</p>
+              <p className="muted small">保存済み item はありません。</p>
             )}
-            <div className="actions">
-              <button className="primary" onClick={commit} disabled={!jobId || isCommitting}>
-                commit
-              </button>
-              <button className="ghost" onClick={onClose}>
-                破棄して閉じる
-              </button>
-            </div>
+          </div>
+
+          <h4>item 情報</h4>
+          <div className="form-grid">
+            <label>
+              stable_key
+              <input
+                type="text"
+                value={draftItem.stableKey}
+                onChange={(e) => setDraftItem({ ...draftItem, stableKey: e.target.value })}
+              />
+            </label>
+            <label>
+              kind
+              <select
+                value={draftItem.kind}
+                onChange={(e) =>
+                  setDraftItem({
+                    ...draftItem,
+                    kind: e.target.value,
+                    schemaId: '',
+                    payload: {},
+                  })
+                }
+              >
+                <option value="">未選択</option>
+                {kinds.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              schema_id
+              <select
+                value={draftItem.schemaId}
+                onChange={(e) =>
+                  setDraftItem({
+                    ...draftItem,
+                    schemaId: e.target.value,
+                    payload: buildDefaultPayload(e.target.value),
+                  })
+                }
+              >
+                <option value="">未選択</option>
+                {availableSchemas.map((schema) => (
+                  <option key={schema} value={schema}>
+                    {schema}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="full">
+              title
+              <input
+                type="text"
+                value={draftItem.title}
+                onChange={(e) => setDraftItem({ ...draftItem, title: e.target.value })}
+              />
+            </label>
+            <label className="full">
+              body
+              <textarea
+                rows={3}
+                value={draftItem.body}
+                onChange={(e) => setDraftItem({ ...draftItem, body: e.target.value })}
+              />
+            </label>
+            <label>
+              domain
+              <input
+                type="text"
+                value={draftItem.domain}
+                onChange={(e) => setDraftItem({ ...draftItem, domain: e.target.value })}
+              />
+            </label>
+            <label>
+              tags（カンマ区切り）
+              <input
+                type="text"
+                value={draftItem.tagsText}
+                onChange={(e) => setDraftItem({ ...draftItem, tagsText: e.target.value })}
+              />
+            </label>
+            <label className="full">
+              evidence
+              <textarea
+                rows={2}
+                value={draftItem.evidenceText}
+                onChange={(e) => setDraftItem({ ...draftItem, evidenceText: e.target.value })}
+              />
+            </label>
+            <label>
+              confidence
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.01"
+                value={draftItem.confidence}
+                onChange={(e) => setDraftItem({ ...draftItem, confidence: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+
+          <div className="payload-editor">
+            <h4>payload</h4>
+            <PayloadEditor
+              schemaId={draftItem.schemaId}
+              value={draftItem.payload}
+              onChange={(nextValue) => setDraftItem({ ...draftItem, payload: nextValue })}
+            />
+          </div>
+
+          <div className="actions">
+            <button className="primary" onClick={handleSaveItem}>
+              {selectedItemIndex == null ? '保存' : '更新'}
+            </button>
+            <button className="ghost" onClick={() => setDraftItem(createDefaultItem())}>
+              クリア
+            </button>
+          </div>
+
+          <div className="actions">
+            <button className="primary" onClick={commit} disabled={isCommitting || !selectedChunk}>
+              commit
+            </button>
+            <button className="ghost" onClick={onClose}>
+              閉じる
+            </button>
           </div>
         </div>
       </div>
-      {comparison && (
-        <ComparisonDialog
-          candidate={comparison.candidate}
-          existing={comparison.existing}
-          onClose={() => setComparison(null)}
-        />
-      )}
-      {messageDrawerData && (
-        <MessageDrawer
-          title={messageDrawerData.title}
-          messages={messageDrawerData.messages}
-          onClose={() => setMessageDrawerData(null)}
-        />
-      )}
-      {showEditModal && selected && (
-        <CandidateEditModal
-          candidate={selected}
-          onClose={() => setShowEditModal(false)}
-          onChange={(val) => updateCandidateItem(selected.candidateId, val)}
-        />
-      )}
-    </>
+    </div>
   );
 }
 

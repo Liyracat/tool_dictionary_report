@@ -473,6 +473,206 @@ textarea {
   gap: 0.5rem;
 }
 
+.chunk-view {
+  margin-top: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f9fafb;
+}
+
+.chunk-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chunk-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #4a5568;
+}
+
+.chunk-messages {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.message-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.message-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+}
+
+.message-line.header {
+  background: #eef2ff;
+}
+
+.message-line.content {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+
+.message-line.content.marked {
+  background: #fff7cc;
+  border-color: #facc15;
+}
+
+.message-line.content.skipped {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.message-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.icon-button {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.icon-button.active {
+  background: #e0e7ff;
+  border-color: #c7d2fe;
+}
+
+.message-gap {
+  height: 0.5rem;
+}
+
+.items-header {
+  margin-top: 1rem;
+}
+
+.payload-editor {
+  margin-top: 1rem;
+}
+
+.payload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.field-group .label {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.list-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.list-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.object-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.object-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.5rem;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.object-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.payload-display {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.payload-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.payload-row .label {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.payload-object-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.payload-object-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem;
+  background: #f9fafb;
+}
+
+.payload-sub-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.25rem;
+}
+
 .candidate-card {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
