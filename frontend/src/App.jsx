@@ -1624,6 +1624,74 @@ function ImportWizard({ onClose }) {
             </div>
           </Collapsible>
 
+          <h4>chunk 情報</h4>
+          <div className="form-grid">
+            <label>
+              source_type
+              <input
+                type="text"
+                value={chunkForm.source_type}
+                onChange={(e) => setChunkForm({ ...chunkForm, source_type: e.target.value })}
+              />
+            </label>
+            <label>
+              hint
+              <input
+                type="text"
+                value={chunkForm.hint}
+                onChange={(e) => setChunkForm({ ...chunkForm, hint: e.target.value })}
+              />
+            </label>
+            <label className="full">
+              locator.message_ids（カンマ区切り）
+              <input
+                type="text"
+                value={chunkForm.locatorMessageIds}
+                onChange={(e) => setChunkForm({ ...chunkForm, locatorMessageIds: e.target.value })}
+              />
+            </label>
+            <label>
+              locator.turn_range.start
+              <input
+                type="text"
+                value={chunkForm.turnRangeStart}
+                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeStart: e.target.value })}
+              />
+            </label>
+            <label>
+              locator.turn_range.end
+              <input
+                type="text"
+                value={chunkForm.turnRangeEnd}
+                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeEnd: e.target.value })}
+              />
+            </label>
+            <label className="full">
+              export_path
+              <input
+                type="text"
+                value={chunkForm.exportPath}
+                onChange={(e) => setChunkForm({ ...chunkForm, exportPath: e.target.value })}
+              />
+            </label>
+            <label>
+              time_range.start
+              <input
+                type="text"
+                value={chunkForm.timeRangeStart}
+                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeStart: e.target.value })}
+              />
+            </label>
+            <label>
+              time_range.end
+              <input
+                type="text"
+                value={chunkForm.timeRangeEnd}
+                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeEnd: e.target.value })}
+              />
+            </label>
+          </div>
+
           {selectedChunk ? (
             <div className="chunk-view">
               <div className="chunk-toolbar">
@@ -1704,74 +1772,6 @@ function ImportWizard({ onClose }) {
         </div>
 
         <div className="import-right">
-          <h4>chunk 情報</h4>
-          <div className="form-grid">
-            <label>
-              source_type
-              <input
-                type="text"
-                value={chunkForm.source_type}
-                onChange={(e) => setChunkForm({ ...chunkForm, source_type: e.target.value })}
-              />
-            </label>
-            <label>
-              hint
-              <input
-                type="text"
-                value={chunkForm.hint}
-                onChange={(e) => setChunkForm({ ...chunkForm, hint: e.target.value })}
-              />
-            </label>
-            <label className="full">
-              locator.message_ids（カンマ区切り）
-              <input
-                type="text"
-                value={chunkForm.locatorMessageIds}
-                onChange={(e) => setChunkForm({ ...chunkForm, locatorMessageIds: e.target.value })}
-              />
-            </label>
-            <label>
-              locator.turn_range.start
-              <input
-                type="text"
-                value={chunkForm.turnRangeStart}
-                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeStart: e.target.value })}
-              />
-            </label>
-            <label>
-              locator.turn_range.end
-              <input
-                type="text"
-                value={chunkForm.turnRangeEnd}
-                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeEnd: e.target.value })}
-              />
-            </label>
-            <label className="full">
-              export_path
-              <input
-                type="text"
-                value={chunkForm.exportPath}
-                onChange={(e) => setChunkForm({ ...chunkForm, exportPath: e.target.value })}
-              />
-            </label>
-            <label>
-              time_range.start
-              <input
-                type="text"
-                value={chunkForm.timeRangeStart}
-                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeStart: e.target.value })}
-              />
-            </label>
-            <label>
-              time_range.end
-              <input
-                type="text"
-                value={chunkForm.timeRangeEnd}
-                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeEnd: e.target.value })}
-              />
-            </label>
-          </div>
-
           <div className="items-header">
             <h4>items</h4>
           </div>
