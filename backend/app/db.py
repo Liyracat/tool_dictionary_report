@@ -28,11 +28,14 @@ class Database:
         if self.db_path.exists():
             return False
 
-        schema_sql = Path(schema_path).read_text(encoding="utf-8")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.apply_schema(schema_path)
+        return True
+
+    def apply_schema(self, schema_path: os.PathLike[str] | str) -> None:
+        schema_sql = Path(schema_path).read_text(encoding="utf-8")
         with self.connect() as conn:
             conn.executescript(schema_sql)
-        return True
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -85,4 +88,8 @@ def default_schema_path() -> Path:
 
 def ensure_schema(db: Database, schema_path: Optional[os.PathLike[str] | str] = None) -> bool:
     """Create the database from the schema if it is not present."""
-    return db.initialize(schema_path or default_schema_path())
+    schema = schema_path or default_schema_path()
+    created = db.initialize(schema)
+    if not created:
+        db.apply_schema(schema)
+    return created
