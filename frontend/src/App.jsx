@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -22,70 +22,70 @@ const schemaOptionsByKind = {
 };
 const payloadSchemaConfig = {
   'knowledge/fact.v1': [
-    { key: 'notes', label: 'notes', type: 'string' },
-    { key: 'caveats', label: 'caveats', type: 'stringList' },
+    { key: 'notes', label: 'notes - 補足', type: 'string' },
+    { key: 'caveats', label: 'caveats - 注意事項', type: 'stringList' },
   ],
   'knowledge/howto.v1': [
     {
       key: 'steps',
-      label: 'steps',
+      label: 'steps - 手順',
       type: 'objectList',
       fields: [
         { key: 'n', label: 'n', type: 'number' },
         { key: 'text', label: 'text', type: 'string' },
       ],
     },
-    { key: 'prerequisites', label: 'prerequisites', type: 'stringList' },
-    { key: 'pitfalls', label: 'pitfalls', type: 'stringList' },
-    { key: 'variants', label: 'variants', type: 'stringList' },
+    { key: 'prerequisites', label: 'prerequisites - 前提条件', type: 'stringList' },
+    { key: 'pitfalls', label: 'pitfalls - 落とし穴', type: 'stringList' },
+    { key: 'variants', label: 'variants - バリエーション', type: 'stringList' },
   ],
   'knowledge/definition.v1': [
-    { key: 'term', label: 'term', type: 'string' },
-    { key: 'definition', label: 'definition', type: 'string' },
-    { key: 'synonyms', label: 'synonyms', type: 'stringList' },
-    { key: 'anti_examples', label: 'anti_examples', type: 'stringList' },
+    { key: 'term', label: 'term - 用語', type: 'string' },
+    { key: 'definition', label: 'definition - 定義', type: 'string' },
+    { key: 'synonyms', label: 'synonyms - 同義語', type: 'stringList' },
+    { key: 'anti_examples', label: 'anti_examples - 反例', type: 'stringList' },
   ],
   'knowledge/rule_of_thumb.v1': [
-    { key: 'rule', label: 'rule', type: 'string' },
-    { key: 'when_applies', label: 'when_applies', type: 'stringList' },
-    { key: 'exceptions', label: 'exceptions', type: 'stringList' },
+    { key: 'rule', label: 'rule - ルール', type: 'string' },
+    { key: 'when_applies', label: 'when_applies - 適用されるタイミング', type: 'stringList' },
+    { key: 'exceptions', label: 'exceptions - 例外', type: 'stringList' },
   ],
   'value/state.v1': [
-    { key: 'scope', label: 'scope', type: 'string' },
-    { key: 'stance', label: 'stance', type: 'string' },
-    { key: 'rationale', label: 'rationale', type: 'stringList' },
-    { key: 'boundaries', label: 'boundaries', type: 'stringList' },
-    { key: 'updated_reason', label: 'updated_reason', type: 'string' },
+    { key: 'scope', label: 'scope - 適用範囲', type: 'string' },
+    { key: 'stance', label: 'stance - 立ち位置', type: 'string' },
+    { key: 'rationale', label: 'rationale - 理由・根拠（筋道）', type: 'stringList' },
+    { key: 'boundaries', label: 'boundaries - 境界', type: 'stringList' },
+    { key: 'updated_reason', label: 'updated_reason - 更新された理由', type: 'string' },
   ],
   'summary/discussion.v1': [
-    { key: 'context', label: 'context', type: 'string' },
-    { key: 'points', label: 'points', type: 'stringList' },
-    { key: 'conclusion', label: 'conclusion', type: 'string' },
-    { key: 'open_questions', label: 'open_questions', type: 'stringList' },
+    { key: 'context', label: 'context - 背景情報', type: 'string' },
+    { key: 'points', label: 'points - ポイント', type: 'stringList' },
+    { key: 'conclusion', label: 'conclusion - 結論', type: 'string' },
+    { key: 'open_questions', label: 'open_questions - 自由回答形式の質問', type: 'stringList' },
   ],
   'summary/compare.v1': [
     {
       key: 'compared',
-      label: 'compared',
+      label: 'compared - 比較内容',
       type: 'objectList',
       fields: [
-        { key: 'option', label: 'option', type: 'string' },
-        { key: 'pros', label: 'pros', type: 'stringList' },
-        { key: 'cons', label: 'cons', type: 'stringList' },
+        { key: 'option', label: 'option - 選択肢', type: 'string' },
+        { key: 'pros', label: 'pros - 利点', type: 'stringList' },
+        { key: 'cons', label: 'cons - 欠点', type: 'stringList' },
       ],
     },
-    { key: 'conclusion', label: 'conclusion', type: 'string' },
+    { key: 'conclusion', label: 'conclusion - 結論', type: 'string' },
   ],
   'model/hypothesis.v1': [
-    { key: 'hypothesis', label: 'hypothesis', type: 'string' },
-    { key: 'assumptions', label: 'assumptions', type: 'stringList' },
-    { key: 'implications', label: 'implications', type: 'stringList' },
-    { key: 'falsifiers', label: 'falsifiers', type: 'stringList' },
+    { key: 'hypothesis', label: 'hypothesis - 仮説', type: 'string' },
+    { key: 'assumptions', label: 'assumptions - 仮定・前提', type: 'stringList' },
+    { key: 'implications', label: 'implications - 含意', type: 'stringList' },
+    { key: 'falsifiers', label: 'falsifiers - 反証要因', type: 'stringList' },
   ],
   'model/structure.v1': [
     {
       key: 'entities',
-      label: 'entities',
+      label: 'entities - 要素（存在・構成・概念）',
       type: 'objectList',
       fields: [
         { key: 'name', label: 'name', type: 'string' },
@@ -95,7 +95,7 @@ const payloadSchemaConfig = {
     },
     {
       key: 'relations',
-      label: 'relations',
+      label: 'relations - 関係・関連',
       type: 'objectList',
       fields: [
         { key: 'from', label: 'from', type: 'string' },
@@ -104,31 +104,31 @@ const payloadSchemaConfig = {
         { key: 'note', label: 'note', type: 'string' },
       ],
     },
-    { key: 'assumptions', label: 'assumptions', type: 'stringList' },
+    { key: 'assumptions', label: 'assumptions - 仮定・前提', type: 'stringList' },
   ],
   'decision/core.v1': [
-    { key: 'decision', label: 'decision', type: 'string' },
-    { key: 'options', label: 'options', type: 'stringList' },
-    { key: 'reasons', label: 'reasons', type: 'stringList' },
-    { key: 'time_hint', label: 'time_hint', type: 'string' },
+    { key: 'decision', label: 'decision - 決定内容', type: 'string' },
+    { key: 'options', label: 'options - 選択肢', type: 'stringList' },
+    { key: 'reasons', label: 'reasons - 理由', type: 'stringList' },
+    { key: 'time_hint', label: 'time_hint - 時間に関するヒント', type: 'string' },
     {
       key: 'impact_scope',
-      label: 'impact_scope',
+      label: 'impact_scope - 影響範囲',
       type: 'stringList',
       options: ['仕事', '創作', '生活', '対人', '健康', 'その他'],
     },
   ],
   'term/glossary.v1': [
-    { key: 'term', label: 'term', type: 'string' },
-    { key: 'meaning', label: 'meaning', type: 'string' },
-    { key: 'examples', label: 'examples', type: 'stringList' },
-    { key: 'related_terms', label: 'related_terms', type: 'stringList' },
+    { key: 'term', label: 'term - 用語', type: 'string' },
+    { key: 'meaning', label: 'meaning - 意味', type: 'string' },
+    { key: 'examples', label: 'examples - 例', type: 'stringList' },
+    { key: 'related_terms', label: 'related_terms - 関連用語', type: 'stringList' },
   ],
   'correction/update.v1': [
-    { key: 'what_changed', label: 'what_changed', type: 'string' },
-    { key: 'previous_view', label: 'previous_view', type: 'string' },
-    { key: 'new_view', label: 'new_view', type: 'string' },
-    { key: 'why', label: 'why', type: 'string' },
+    { key: 'what_changed', label: 'what_changed - 変更点', type: 'string' },
+    { key: 'previous_view', label: 'previous_view - 変更前の状態', type: 'string' },
+    { key: 'new_view', label: 'new_view - 変更後の状態', type: 'string' },
+    { key: 'why', label: 'why - 理由・動機', type: 'string' },
   ],
 };
 
@@ -714,7 +714,7 @@ function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, onClone, onDe
           </div>
 
           <div className="links">
-            <h3>links</h3>
+            <h3>links - 関連</h3>
             {relOptions.map((rel) => (
               <div key={rel} className="link-row">
                 <span className="badge subtle">{rel}</span>
@@ -743,7 +743,7 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
   return (
     <div className="form-grid">
       <label>
-        kind
+        kind - 大種別
         <select
           value={value.kind}
           onChange={(e) =>
@@ -764,7 +764,7 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
         </select>
       </label>
       <label>
-        schema_id
+        schema_id 小種別
         <select
           value={value.schemaId}
           onChange={(e) =>
@@ -784,19 +784,19 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
         </select>
       </label>
       <label className="full">
-        title
+        title - 題目
         <input type="text" value={value.title} onChange={(e) => updateField('title', e.target.value)} />
       </label>
       <label className="full">
-        body
+        body - 本文
         <textarea rows={4} value={value.body} onChange={(e) => updateField('body', e.target.value)} />
       </label>
       <label>
-        domain
+        domain - 文脈・用途区分・領域
         <input type="text" value={value.domain || ''} onChange={(e) => updateField('domain', e.target.value)} />
       </label>
       <label>
-        tags（カンマ区切り）
+        tags - タグ
         <input
           type="text"
           value={value.tagsText ?? ''}
@@ -804,7 +804,7 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
         />
       </label>
       <label className="full">
-        evidence
+        evidence - 証拠（材料）
         <textarea
           rows={2}
           value={value.evidenceText ?? ''}
@@ -812,7 +812,7 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
         />
       </label>
       <label>
-        confidence
+        confidence - 信憑性
         <input
           type="number"
           min="0"
@@ -830,7 +830,7 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
 
       <div className="stable-key full">
         <label>
-          stable_key
+          stable_key - 不変キー・識別キー
           <input
             type="text"
             value={value.stableKey || ''}
@@ -981,21 +981,21 @@ function ComparisonColumn({ label, item }) {
       </div>
       <p className="strong-title">{item.title || '（titleなし）'}</p>
       <div className="comparison-field">
-        <span className="label">stable_key</span>
+        <span className="label">stable_key - 不変キー・識別キー</span>
         <code>{item.stableKey || 'なし'}</code>
       </div>
       <div className="comparison-field">
-        <span className="label">domain</span>
+        <span className="label">domain - 文脈・用途区分・領域</span>
         <span>{item.domain || 'なし'}</span>
       </div>
       <div className="comparison-field">
-        <span className="label">tags</span>
+        <span className="label">tags - タグ</span>
         <div className="tag-row">
           {item.tags?.length ? item.tags.map((t) => <TagPill key={t} label={t} />) : <span className="muted small">なし</span>}
         </div>
       </div>
       <div className="comparison-field">
-        <span className="label">body</span>
+        <span className="label">body - 本文</span>
         <div className="preview small-scroll">{item.body || 'なし'}</div>
       </div>
       <div className="comparison-field">
@@ -1426,8 +1426,15 @@ function ImportWizard({ onClose }) {
   const [draftItem, setDraftItem] = useState(createDefaultItem);
   const [isLoadingInput, setIsLoadingInput] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const messageListRef = useRef(null);
 
   const selectedChunk = chunks[selectedChunkIndex] || null;
+
+  useEffect(() => {
+    if (messageListRef.current) {
+      messageListRef.current.scrollTop = 0;
+    }
+  }, [selectedChunkIndex, selectedChunk?.chunkTmpId]);
 
   const resetChunkState = () => {
     setChunkForm(createDefaultChunkForm());
@@ -1686,7 +1693,7 @@ function ImportWizard({ onClose }) {
                   </button>
                 </div>
               </div>
-              <div className="chunk-messages">
+              <div className="chunk-messages" ref={messageListRef}>
                 {selectedChunk.messages.length ? (
                   selectedChunk.messages.map((message, messageIndex) => (
                     <div key={`${message.message_id}-${messageIndex}`} className="message-group">
@@ -1742,7 +1749,7 @@ function ImportWizard({ onClose }) {
           <h4>chunk 情報</h4>
           <div className="form-grid">
             <label>
-              source_type
+              source_type - 入力情報元
               <input
                 type="text"
                 value={chunkForm.source_type}
@@ -1750,7 +1757,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              hint
+              hint - chunk内の概要
               <input
                 type="text"
                 value={chunkForm.hint}
@@ -1758,7 +1765,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label className="full">
-              locator.message_ids（カンマ区切り）
+              message_ids - 有効なメッセージID（カンマ区切り）
               <input
                 type="text"
                 value={chunkForm.locatorMessageIds}
@@ -1766,7 +1773,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              locator.turn_range.start
+              turn_range.start - 話題の開始メッセージID
               <input
                 type="text"
                 value={chunkForm.turnRangeStart}
@@ -1774,7 +1781,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              locator.turn_range.end
+              turn_range.end - 話題の終了メッセージID
               <input
                 type="text"
                 value={chunkForm.turnRangeEnd}
@@ -1782,7 +1789,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label className="full">
-              export_path
+              export_path - 原文保存元
               <input
                 type="text"
                 value={chunkForm.exportPath}
@@ -1790,7 +1797,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              time_range.start
+              time_range.start - 開始時刻
               <input
                 type="text"
                 value={chunkForm.timeRangeStart}
@@ -1798,7 +1805,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              time_range.end
+              time_range.end - 終了時刻
               <input
                 type="text"
                 value={chunkForm.timeRangeEnd}
@@ -1836,7 +1843,7 @@ function ImportWizard({ onClose }) {
           <h4>item 情報</h4>
           <div className="form-grid">
             <label>
-              stable_key
+              stable_key - 不変キー・識別キー
               <input
                 type="text"
                 value={draftItem.stableKey}
@@ -1844,7 +1851,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              kind
+              kind - 大種別
               <select
                 value={draftItem.kind}
                 onChange={(e) =>
@@ -1865,7 +1872,7 @@ function ImportWizard({ onClose }) {
               </select>
             </label>
             <label>
-              schema_id
+              schema_id 小種別
               <select
                 value={draftItem.schemaId}
                 onChange={(e) =>
@@ -1885,7 +1892,7 @@ function ImportWizard({ onClose }) {
               </select>
             </label>
             <label className="full">
-              title
+              title - 題目
               <input
                 type="text"
                 value={draftItem.title}
@@ -1893,7 +1900,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label className="full">
-              body
+              body - 本文
               <textarea
                 rows={3}
                 value={draftItem.body}
@@ -1901,7 +1908,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              domain
+              domain - 文脈・用途区分・領域
               <input
                 type="text"
                 value={draftItem.domain}
@@ -1909,7 +1916,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              tags（カンマ区切り）
+              tags - タグ
               <input
                 type="text"
                 value={draftItem.tagsText}
@@ -1917,7 +1924,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label className="full">
-              evidence
+              evidence - 証拠（材料）
               <textarea
                 rows={2}
                 value={draftItem.evidenceText}
@@ -1925,7 +1932,7 @@ function ImportWizard({ onClose }) {
               />
             </label>
             <label>
-              confidence
+              confidence - 信憑性
               <input
                 type="number"
                 min="0"
