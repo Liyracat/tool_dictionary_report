@@ -132,7 +132,7 @@ def create_app(
             stable_key=payload.get("stable_key"),
             domain=payload.get("domain"),
             confidence=payload.get("confidence", 0.0),
-            status=payload.get("status", "active"),
+            status=payload.get("status"),
             evidence_basis=json.dumps(payload.get("evidence", {})),
         )
         items.add_payload(item_id, payload.get("payload", {}))

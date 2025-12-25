@@ -36,7 +36,7 @@ class ItemsRepo:
         stable_key: Optional[str] = None,
         domain: Optional[str] = None,
         confidence: float = 0.0,
-        status: str = "active",
+        status: Optional[str] = None,
         evidence_basis: Optional[str] = None,
     ) -> None:
         with self.db.transaction() as cur:
@@ -80,7 +80,7 @@ class ItemsRepo:
                 """
                 UPDATE items
                 SET kind = ?, schema_id = ?, title = ?, body = ?, stable_key = ?, domain = ?,
-                    confidence = ?, status = ?, evidence_basis = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                    confidence = ?, status = COALESCE(?, status), evidence_basis = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
                     chunk_id = COALESCE(?, chunk_id)
                 WHERE item_id = ?
                 """,
@@ -420,8 +420,8 @@ class SearchRepo:
         kinds = kinds or []
         tags = tags or []
 
-        params: List[Any] = []
-        where_clauses = []
+        params: List[Any] = ["deleted"]
+        where_clauses = ["i.status != ?"]
 
         if kinds:
             placeholders = ",".join(["?"] * len(kinds))
