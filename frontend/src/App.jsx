@@ -51,6 +51,7 @@ const payloadSchemaConfig = {
     { key: 'exceptions', label: 'exceptions - 例外', type: 'stringList' },
   ],
   'value/state.v1': [
+    { key: 'person', label: 'person - 人物', type: 'string' },
     { key: 'scope', label: 'scope - 適用範囲', type: 'string' },
     { key: 'stance', label: 'stance - 立ち位置', type: 'string' },
     { key: 'rationale', label: 'rationale - 理由・根拠（筋道）', type: 'stringList' },
@@ -144,6 +145,11 @@ const buildDefaultPayload = (schemaId) => {
   }, {});
 };
 
+const applyPayloadDefaults = (schemaId, payload) => ({
+  ...buildDefaultPayload(schemaId),
+  ...(payload ?? {}),
+});
+
 const coerceContentLines = (content) => {
   if (Array.isArray(content)) return content;
   if (content == null) return [];
@@ -204,7 +210,7 @@ const toRequestPayload = (item) => {
     stable_key: item.stableKey || null,
     domain: item.domain || null,
     confidence: item.confidence ?? 1.0,
-    payload: item.payload ?? {},
+    payload: applyPayloadDefaults(item.schemaId, item.payload),
     evidence: item.evidenceText != null ? parseEvidence(item.evidenceText) : item.evidence ?? {},
     tags: (tagsText || '')
       .split(',')
@@ -455,6 +461,8 @@ function PayloadDisplay({ schemaId, payload }) {
     return <pre>{JSON.stringify(payload, null, 2)}</pre>;
   }
 
+  const hasKey = (target, key) => Object.prototype.hasOwnProperty.call(target ?? {}, key);
+
   const renderStringList = (items) => {
     if (!items?.length) return <span className="muted small">なし</span>;
     return (
@@ -470,43 +478,52 @@ function PayloadDisplay({ schemaId, payload }) {
     <div className="payload-display">
       {config.map((field) => {
         if (field.type === 'string' || field.type === 'number') {
+          const hasField = hasKey(payload, field.key);
           return (
             <div key={field.key} className="payload-row">
               <span className="label">{field.label}</span>
-              <span>{payload?.[field.key] || 'なし'}</span>
+              <span>{hasField ? (payload?.[field.key] ?? '') : ''}</span>
             </div>
           );
         }
         if (field.type === 'stringList') {
+          const hasField = hasKey(payload, field.key);
           return (
             <div key={field.key} className="payload-row">
               <span className="label">{field.label}</span>
-              {renderStringList(payload?.[field.key] || [])}
+              {hasField ? renderStringList(payload?.[field.key] || []) : <span className="muted small" />}
             </div>
           );
         }
         if (field.type === 'objectList') {
+          const hasField = hasKey(payload, field.key);
           const entries = payload?.[field.key] || [];
           return (
             <div key={field.key} className="payload-row">
               <span className="label">{field.label}</span>
-              {entries.length ? (
+              {hasField && entries.length ? (
                 <div className="payload-object-list">
                   {entries.map((entry, index) => (
                     <div key={`${field.key}-${index}`} className="payload-object-card">
                       {field.fields?.map((subField) => (
                         <div key={subField.key} className="payload-sub-row">
                           <span className="label">{subField.label}</span>
-                          {subField.type === 'stringList'
-                            ? renderStringList(entry?.[subField.key] || [])
-                            : entry?.[subField.key] || 'なし'}
+                          {subField.type === 'stringList' ? (
+                            hasKey(entry, subField.key)
+                              ? renderStringList(entry?.[subField.key] || [])
+                              : <span className="muted small" />
+                          ) : (
+                            hasKey(entry, subField.key) ? (entry?.[subField.key] ?? '') : ''
+                          )}
                         </div>
                       ))}
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : hasField ? (
                 <span className="muted small">なし</span>
+              ) : (
+                <span className="muted small" />
               )}
             </div>
           );
@@ -1608,7 +1625,7 @@ function ImportWizard({ onClose }) {
           stable_key: item.stableKey || null,
           domain: item.domain || null,
           confidence: item.confidence ?? 1.0,
-          payload: item.payload || {},
+          payload: applyPayloadDefaults(item.schemaId, item.payload),
           evidence: parseEvidence(item.evidenceText),
           tags: (item.tagsText || '')
             .split(',')
