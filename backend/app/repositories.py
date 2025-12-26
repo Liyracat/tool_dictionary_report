@@ -180,22 +180,44 @@ class ItemsRepo:
                     ),
                 )
             else:
-                cur.execute(
-                    """
-                    INSERT INTO chunks(chunk_id, thread_id, source_type, time_start, time_end, digest, locator_json, hint)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        chunk_id,
-                        thread_id,
-                        source_type,
-                        time_start,
-                        time_end,
-                        digest,
-                        json.dumps(locator),
-                        source_payload.get("hint") or source.get("hint"),
-                    ),
-                )
+                existing_by_id = cur.execute(
+                    "SELECT * FROM chunks WHERE chunk_id = ?",
+                    (chunk_id,),
+                ).fetchone()
+                if existing_by_id:
+                    cur.execute(
+                        """
+                        UPDATE chunks
+                        SET thread_id = ?, source_type = ?, time_start = ?, time_end = ?, locator_json = ?, hint = ?
+                        WHERE chunk_id = ?
+                        """,
+                        (
+                            thread_id,
+                            source_type,
+                            time_start,
+                            time_end,
+                            json.dumps(locator),
+                            source_payload.get("hint") or source.get("hint"),
+                            chunk_id,
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO chunks(chunk_id, thread_id, source_type, time_start, time_end, digest, locator_json, hint)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            chunk_id,
+                            thread_id,
+                            source_type,
+                            time_start,
+                            time_end,
+                            digest,
+                            json.dumps(locator),
+                            source_payload.get("hint") or source.get("hint"),
+                        ),
+                    )
 
             return chunk_id
 
