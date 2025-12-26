@@ -158,6 +158,14 @@ def create_app(
         body: Dict[str, Any],
         links: LinksRepo = Depends(get_links_repo),
     ) -> Dict[str, str]:
+        existing_link_id = links.find_link_id(
+            item_id=item_id,
+            rel=body["rel"],
+            target_key=body["target_item_id"],
+        )
+        if existing_link_id:
+            return {"link_id": existing_link_id}
+
         link_id = f"link-{uuid.uuid4()}"
         links.create_link(
             link_id=link_id,

@@ -341,6 +341,20 @@ class LinksRepo:
                 (link_id, item_id, rel, target_key, note, confidence),
             )
 
+    def find_link_id(self, item_id: str, rel: str, target_key: str) -> Optional[str]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT link_id
+                FROM item_links
+                WHERE item_id = ? AND rel = ? AND target_key = ?
+                ORDER BY created_at
+                LIMIT 1
+                """,
+                (item_id, rel, target_key),
+            ).fetchone()
+            return row["link_id"] if row else None
+
     def list_links_for_item(self, item_id: str, include_targets: bool = False) -> List[Dict[str, Any]]:
         with self.db.connect() as conn:
             if not include_targets:
