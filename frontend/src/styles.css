@@ -269,6 +269,7 @@ select {
   border-radius: 12px;
   padding: 1rem;
   border: 1px solid #e5e7eb;
+  white-space: pre-wrap;
 }
 
 .links {
