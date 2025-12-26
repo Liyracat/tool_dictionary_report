@@ -1544,9 +1544,14 @@ function ImportWizard({ onClose }) {
     });
   };
 
-  const toggleMarker = (lineId) => {
+  const handleStarClick = (lineId, messageId, lineText) => {
     const current = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
-    updateLineState(lineId, current.marker ? { marker: false } : { marker: true, skip: false });
+    if (current.marker) {
+      updateLineState(lineId, { marker: false });
+      return;
+    }
+    updateLineState(lineId, { marker: true, skip: false });
+    handleKeepMessage(messageId, lineText);
   };
 
   const toggleSkip = (lineId) => {
@@ -1780,16 +1785,9 @@ function ImportWizard({ onClose }) {
                           >
                             <div className="message-actions">
                               <button
-                                className="pill-toggle keep"
-                                type="button"
-                                onClick={() => handleKeepMessage(message.message_id, line)}
-                              >
-                                KEEP
-                              </button>
-                              <button
                                 className={`icon-button ${isMarked ? 'active' : ''}`}
                                 type="button"
-                                onClick={() => toggleMarker(lineId)}
+                                onClick={() => handleStarClick(lineId, message.message_id, line)}
                               >
                                 ⭐
                               </button>

@@ -749,12 +749,6 @@ textarea {
   cursor: pointer;
 }
 
-.pill-toggle.keep {
-  background: #ecfdf3;
-  color: #166534;
-  border: 1px solid #bbf7d0;
-}
-
 .pill-toggle.skip {
   background: #fff1f2;
   color: #9f1239;
