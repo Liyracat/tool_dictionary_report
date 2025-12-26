@@ -936,7 +936,7 @@ function LinkModal({ currentItem, items, onClose, onAdd }) {
             ×
           </button>
         </div>
-        <div className="modal-body">
+        <div className="modal-body link-modal-body">
           <label>
             rel
             <select value={rel} onChange={(e) => setRel(e.target.value)}>

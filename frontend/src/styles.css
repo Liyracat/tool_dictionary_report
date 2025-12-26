@@ -374,6 +374,11 @@ textarea {
   gap: 0.5rem;
 }
 
+.modal-body.link-modal-body {
+  flex: 1;
+  min-height: 0;
+}
+
 .modal-list {
   max-height: 200px;
   overflow: auto;
@@ -468,6 +473,13 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.modal-body.link-modal-body .candidate-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
 }
 
 .chunk-list,
