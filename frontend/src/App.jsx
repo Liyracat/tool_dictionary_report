@@ -1483,6 +1483,23 @@ function ImportWizard({ onClose }) {
     return crypto.randomUUID();
   };
 
+  const normalizeMessageIdList = (value) =>
+    value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+  const appendMessageId = (currentValue, messageId) => {
+    const ids = normalizeMessageIdList(currentValue);
+    if (!ids.includes(messageId)) {
+      ids.push(messageId);
+    }
+    return ids.join(',');
+  };
+
+  const appendBodyText = (currentValue, messageText) =>
+    currentValue ? `${currentValue}\n${messageText}` : messageText;
+
   const startImport = () => {
     if (!inputRawJson.trim()) {
       alert('入力 JSON を貼り付けてください');
@@ -1535,6 +1552,23 @@ function ImportWizard({ onClose }) {
   const toggleSkip = (lineId) => {
     const current = lineStates[selectedChunkIndex]?.[lineId] || { marker: false, skip: false };
     updateLineState(lineId, current.skip ? { skip: false } : { skip: true, marker: false });
+  };
+
+  const handleKeepMessage = (messageId, lineText) => {
+    const messageText = lineText === '' ? '（空白）' : lineText;
+    setChunkForm((prev) => {
+      const nextIds = appendMessageId(prev.locatorMessageIds, messageId);
+      return {
+        ...prev,
+        locatorMessageIds: nextIds,
+        turnRangeStart: prev.turnRangeStart?.trim() ? prev.turnRangeStart : messageId,
+        turnRangeEnd: messageId,
+      };
+    });
+    setDraftItem((prev) => ({
+      ...prev,
+      body: appendBodyText(prev.body, messageText),
+    }));
   };
 
   const goToNextChunk = () => {
@@ -1745,6 +1779,13 @@ function ImportWizard({ onClose }) {
                             className={`message-line content ${isMarked ? 'marked' : ''} ${isSkipped ? 'skipped' : ''}`}
                           >
                             <div className="message-actions">
+                              <button
+                                className="pill-toggle keep"
+                                type="button"
+                                onClick={() => handleKeepMessage(message.message_id, line)}
+                              >
+                                KEEP
+                              </button>
                               <button
                                 className={`icon-button ${isMarked ? 'active' : ''}`}
                                 type="button"
