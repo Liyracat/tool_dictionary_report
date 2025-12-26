@@ -1537,6 +1537,31 @@ function ImportWizard({ onClose }) {
     updateLineState(lineId, current.skip ? { skip: false } : { skip: true, marker: false });
   };
 
+  const appendMessageId = (currentIds, messageId) => {
+    const entries = (currentIds || '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return [...entries, messageId].join(', ');
+  };
+
+  const handleKeepMessage = (message) => {
+    const messageId = message?.message_id;
+    if (!messageId) return;
+    const contentText = coerceContentLines(message.content).join('\n');
+    setChunkForm((prev) => ({
+      ...prev,
+      locatorMessageIds: appendMessageId(prev.locatorMessageIds, messageId),
+      turnRangeStart: prev.turnRangeStart ? prev.turnRangeStart : messageId,
+      turnRangeEnd: messageId,
+    }));
+    setDraftItem((prev) => {
+      const body = prev.body || '';
+      const separator = body ? '\n' : '';
+      return { ...prev, body: `${body}${separator}${contentText}` };
+    });
+  };
+
   const goToNextChunk = () => {
     const nextIndex = selectedChunkIndex + 1;
     if (nextIndex < chunks.length) {
@@ -1731,6 +1756,13 @@ function ImportWizard({ onClose }) {
                     <div key={`${message.message_id}-${messageIndex}`} className="message-group">
                       <div className="message-line header">
                         <strong>{`${message.message_id} - ${message.speaker}`}</strong>
+                        <button
+                          className="pill-toggle keep"
+                          type="button"
+                          onClick={() => handleKeepMessage(message)}
+                        >
+                          KEEP
+                        </button>
                       </div>
                       {message.content.map((line, lineIndex) => {
                         const lineId = `${message.message_id}-${lineIndex}`;

@@ -533,6 +533,7 @@ textarea {
 
 .message-line.header {
   background: #eef2ff;
+  justify-content: space-between;
 }
 
 .message-line.content {
