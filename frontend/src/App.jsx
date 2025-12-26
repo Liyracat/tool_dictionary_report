@@ -11,6 +11,7 @@ const sortOptions = [
 ];
 const pageSizes = [10, 20, 50];
 const emptyLinks = { born_from: [], related: [], contradicts: [], supersedes: [] };
+const emptyLinkMeta = { born_from: [], related: [], contradicts: [], supersedes: [] };
 const schemaOptionsByKind = {
   knowledge: ['knowledge/fact.v1', 'knowledge/howto.v1', 'knowledge/definition.v1', 'knowledge/rule_of_thumb.v1'],
   value: ['value/state.v1'],
@@ -217,6 +218,7 @@ const createPlaceholderItem = (id, title) => ({
   stableKey: '',
   stableKeySuggested: '',
   linkTitles: {},
+  linkMeta: { ...emptyLinkMeta },
 });
 
 const toRequestPayload = (item) => {
@@ -718,6 +720,7 @@ function ItemDetail({
   onClone,
   onDelete,
   onOpenLink,
+  onRemoveLink,
   isLoading,
 }) {
   if (!item) return null;
@@ -789,17 +792,28 @@ function ItemDetail({
                 <span className="badge subtle">{rel}</span>
                 <div className="link-targets">
                   {item.links?.[rel]?.length ? (
-                    item.links[rel].map((linkId) => {
-                      const linkTitle = item.linkTitles?.[linkId] || linkId;
+                    (item.linkMeta?.[rel] || item.links[rel].map((targetId) => ({ targetId }))).map((link) => {
+                      const linkTitle = item.linkTitles?.[link.targetId] || link.targetId;
                       return (
-                        <button
-                          key={`${rel}-${linkId}`}
-                          className="pill link-pill"
-                          type="button"
-                          onClick={() => onOpenLink(linkId, linkTitle)}
-                        >
-                          {linkTitle}
-                        </button>
+                        <div key={`${rel}-${link.targetId}-${link.linkId || 'link'}`} className="link-pill-group">
+                          <button
+                            className="pill link-pill"
+                            type="button"
+                            onClick={() => onOpenLink(link.targetId, linkTitle)}
+                          >
+                            {linkTitle}
+                          </button>
+                          {link.linkId && (
+                            <button
+                              className="link-remove"
+                              type="button"
+                              aria-label={`${linkTitle} をリンク解除`}
+                              onClick={() => onRemoveLink(link.linkId)}
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
                       );
                     })
                   ) : (
@@ -2167,16 +2181,21 @@ export default function App() {
     const detail = toDisplayItem({ ...data.item, tags: data.item?.tags });
     detail.links = { ...emptyLinks };
     detail.linkTitles = {};
+    detail.linkMeta = { ...emptyLinkMeta };
     try {
       const links = await fetchJson(`${API_BASE}/api/items/${itemId}/links`);
       const grouped = { ...emptyLinks };
+      const metaGrouped = { ...emptyLinkMeta };
       (links.links || []).forEach((link) => {
         const rel = link.rel || 'related';
         if (!grouped[rel]) grouped[rel] = [];
+        if (!metaGrouped[rel]) metaGrouped[rel] = [];
         grouped[rel].push(link.target_key);
+        metaGrouped[rel].push({ linkId: link.link_id, targetId: link.target_key });
       });
       detail.links = grouped;
       detail.linkTitles = await loadLinkTitles(grouped);
+      detail.linkMeta = metaGrouped;
     } catch (err) {
       console.warn('links fetch failed', err);
     }
@@ -2219,6 +2238,7 @@ export default function App() {
       payload: {},
       evidence: {},
       links: { ...emptyLinks },
+      linkMeta: { ...emptyLinkMeta },
       stableKey: '',
       stableKeySuggested: 'new/item/stable-key',
     });
@@ -2282,6 +2302,7 @@ export default function App() {
         ...selectedItem.links,
         born_from: [...(selectedItem.links?.born_from || []), selectedItem.id].filter(Boolean),
       },
+      linkMeta: { ...emptyLinkMeta },
     };
     setSelectedItem(modelDraft);
     setView('edit');
@@ -2289,6 +2310,10 @@ export default function App() {
 
   const addLink = async ({ rel, targetId }) => {
     if (!selectedItem) return;
+    if (selectedItem.links?.[rel]?.includes(targetId)) {
+      setShowLinkModal(false);
+      return;
+    }
     try {
       await fetchJson(`${API_BASE}/api/items/${selectedItem.id}/links`, {
         method: 'POST',
@@ -2301,6 +2326,19 @@ export default function App() {
     } catch (err) {
       console.error(err);
       showApiError(err, 'リンクの追加に失敗しました');
+    }
+  };
+
+  const removeLink = async (linkId) => {
+    if (!selectedItem || !linkId) return;
+    try {
+      await fetchJson(`${API_BASE}/api/links/${linkId}`, { method: 'DELETE' });
+      const detail = await loadItemDetail(selectedItem.id);
+      setSelectedItem(detail);
+      refreshSearch();
+    } catch (err) {
+      console.error(err);
+      showApiError(err, 'リンクの削除に失敗しました');
     }
   };
 
@@ -2363,6 +2401,7 @@ export default function App() {
           onClone={handleClone}
           onDelete={handleDelete}
           onOpenLink={openDetailById}
+          onRemoveLink={removeLink}
           isLoading={isLoadingDetail}
         />
       )}

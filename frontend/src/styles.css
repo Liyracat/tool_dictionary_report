@@ -248,6 +248,31 @@ select {
   cursor: pointer;
 }
 
+.link-pill-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.link-remove {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+}
+
+.link-remove:hover {
+  color: #ef4444;
+}
+
+.link-remove:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+}
+
 .link-pill:hover {
   background: #e2e8f0;
 }
