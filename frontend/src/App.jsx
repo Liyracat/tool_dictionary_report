@@ -1470,6 +1470,19 @@ function ImportWizard({ onClose }) {
     resetChunkState();
   };
 
+  const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+  const normalizeChunkTmpId = (value) => {
+    if (!value) return crypto.randomUUID();
+    const str = String(value).trim();
+    if (str.startsWith('chunk-')) {
+      const raw = str.slice('chunk-'.length);
+      if (isUuid(raw)) return raw;
+    }
+    if (isUuid(str)) return str;
+    return crypto.randomUUID();
+  };
+
   const startImport = () => {
     if (!inputRawJson.trim()) {
       alert('入力 JSON を貼り付けてください');
@@ -1484,8 +1497,10 @@ function ImportWizard({ onClose }) {
         setIsLoadingInput(false);
         return;
       }
-      const mappedChunks = inputChunks.map((chunk, index) => {
-        const chunkTmpId = chunk.chunk_tmp_id ?? chunk.chunks_tmp_id ?? chunk.chunk_id ?? index + 1;
+      const mappedChunks = inputChunks.map((chunk) => {
+        const chunkTmpId = normalizeChunkTmpId(
+          chunk.chunk_tmp_id ?? chunk.chunks_tmp_id ?? chunk.chunk_id,
+        );
         const messages = (chunk.messages || []).map((message) => ({
           ...message,
           content: coerceContentLines(message.content),
