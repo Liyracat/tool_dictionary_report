@@ -10,8 +10,8 @@ const sortOptions = [
   { value: 'created', label: '作成日' },
 ];
 const pageSizes = [10, 20, 50];
-const emptyLinks = { born_from: [], related: [], contradicts: [], supersedes: [] };
-const emptyLinkMeta = { born_from: [], related: [], contradicts: [], supersedes: [] };
+const createEmptyLinks = () => ({ born_from: [], related: [], contradicts: [], supersedes: [] });
+const createEmptyLinkMeta = () => ({ born_from: [], related: [], contradicts: [], supersedes: [] });
 const schemaOptionsByKind = {
   knowledge: ['knowledge/fact.v1', 'knowledge/howto.v1', 'knowledge/definition.v1', 'knowledge/rule_of_thumb.v1'],
   value: ['value/state.v1'],
@@ -195,7 +195,7 @@ const toDisplayItem = (raw) => {
     body: raw.body || '',
     payload: raw.payload || {},
     evidence: parseEvidence(raw.evidence || raw.evidence_basis),
-    links: raw.links || { ...emptyLinks },
+    links: raw.links || createEmptyLinks(),
     stableKey: raw.stable_key || raw.stableKey || '',
     stableKeySuggested: raw.stableKeySuggested || raw.stable_key_suggested || '',
   };
@@ -214,11 +214,11 @@ const createPlaceholderItem = (id, title) => ({
   body: '',
   payload: {},
   evidence: {},
-  links: { ...emptyLinks },
+  links: createEmptyLinks(),
   stableKey: '',
   stableKeySuggested: '',
   linkTitles: {},
-  linkMeta: { ...emptyLinkMeta },
+  linkMeta: createEmptyLinkMeta(),
 });
 
 const toRequestPayload = (item) => {
@@ -2179,13 +2179,13 @@ export default function App() {
   const loadItemDetail = useCallback(async (itemId) => {
     const data = await fetchJson(`${API_BASE}/api/items/${itemId}`);
     const detail = toDisplayItem({ ...data.item, tags: data.item?.tags });
-    detail.links = { ...emptyLinks };
+    detail.links = createEmptyLinks();
     detail.linkTitles = {};
-    detail.linkMeta = { ...emptyLinkMeta };
+    detail.linkMeta = createEmptyLinkMeta();
     try {
       const links = await fetchJson(`${API_BASE}/api/items/${itemId}/links`);
-      const grouped = { ...emptyLinks };
-      const metaGrouped = { ...emptyLinkMeta };
+      const grouped = createEmptyLinks();
+      const metaGrouped = createEmptyLinkMeta();
       (links.links || []).forEach((link) => {
         const rel = link.rel || 'related';
         if (!grouped[rel]) grouped[rel] = [];
@@ -2237,8 +2237,8 @@ export default function App() {
       body: '',
       payload: {},
       evidence: {},
-      links: { ...emptyLinks },
-      linkMeta: { ...emptyLinkMeta },
+      links: createEmptyLinks(),
+      linkMeta: createEmptyLinkMeta(),
       stableKey: '',
       stableKeySuggested: 'new/item/stable-key',
     });
@@ -2302,7 +2302,7 @@ export default function App() {
         ...selectedItem.links,
         born_from: [...(selectedItem.links?.born_from || []), selectedItem.id].filter(Boolean),
       },
-      linkMeta: { ...emptyLinkMeta },
+      linkMeta: createEmptyLinkMeta(),
     };
     setSelectedItem(modelDraft);
     setView('edit');
