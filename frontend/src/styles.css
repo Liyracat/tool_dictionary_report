@@ -242,6 +242,21 @@ select {
   font-size: 0.85rem;
 }
 
+.link-pill {
+  border: none;
+  background: #edf2f7;
+  cursor: pointer;
+}
+
+.link-pill:hover {
+  background: #e2e8f0;
+}
+
+.link-pill:focus-visible {
+  outline: 2px solid #94a3b8;
+  outline-offset: 2px;
+}
+
 .collapsible {
   border: 1px solid #e2e8f0;
   border-radius: 10px;

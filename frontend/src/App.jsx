@@ -200,6 +200,25 @@ const toDisplayItem = (raw) => {
   };
 };
 
+const createPlaceholderItem = (id, title) => ({
+  id,
+  kind: '',
+  schemaId: '',
+  title: title || '',
+  domain: '',
+  tags: [],
+  updatedAt: '',
+  createdAt: '',
+  confidence: 0,
+  body: '',
+  payload: {},
+  evidence: {},
+  links: { ...emptyLinks },
+  stableKey: '',
+  stableKeySuggested: '',
+  linkTitles: {},
+});
+
 const toRequestPayload = (item) => {
   const tagsText = item.tagsText ?? (item.tags || []).join(',');
   return {
@@ -252,6 +271,29 @@ async function fetchJson(url, options = {}) {
   }
   return res.json();
 }
+
+const loadLinkTitles = async (groupedLinks) => {
+  const linkIds = Object.values(groupedLinks || {})
+    .flat()
+    .filter(Boolean);
+  const uniqueIds = [...new Set(linkIds)];
+  if (!uniqueIds.length) return {};
+
+  const results = await Promise.allSettled(
+    uniqueIds.map((id) => fetchJson(`${API_BASE}/api/items/${id}`)),
+  );
+  const titleMap = {};
+  results.forEach((result, index) => {
+    const id = uniqueIds[index];
+    if (result.status === 'fulfilled') {
+      const item = toDisplayItem({ ...result.value.item, tags: result.value.item?.tags });
+      titleMap[id] = item?.title || id;
+    } else {
+      titleMap[id] = id;
+    }
+  });
+  return titleMap;
+};
 
 function showApiError(err, fallbackMessage) {
   if (err?.detail) {
@@ -667,7 +709,17 @@ function SearchView({
   );
 }
 
-function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, onClone, onDelete, isLoading }) {
+function ItemDetail({
+  item,
+  onBack,
+  onEdit,
+  onAddLink,
+  onModelize,
+  onClone,
+  onDelete,
+  onOpenLink,
+  isLoading,
+}) {
   if (!item) return null;
 
   return (
@@ -737,7 +789,19 @@ function ItemDetail({ item, onBack, onEdit, onAddLink, onModelize, onClone, onDe
                 <span className="badge subtle">{rel}</span>
                 <div className="link-targets">
                   {item.links?.[rel]?.length ? (
-                    item.links[rel].map((linkId) => <span key={linkId} className="pill muted">{linkId}</span>)
+                    item.links[rel].map((linkId) => {
+                      const linkTitle = item.linkTitles?.[linkId] || linkId;
+                      return (
+                        <button
+                          key={`${rel}-${linkId}`}
+                          className="pill link-pill"
+                          type="button"
+                          onClick={() => onOpenLink(linkId, linkTitle)}
+                        >
+                          {linkTitle}
+                        </button>
+                      );
+                    })
                   ) : (
                     <span className="muted small">なし</span>
                   )}
@@ -2102,6 +2166,7 @@ export default function App() {
     const data = await fetchJson(`${API_BASE}/api/items/${itemId}`);
     const detail = toDisplayItem({ ...data.item, tags: data.item?.tags });
     detail.links = { ...emptyLinks };
+    detail.linkTitles = {};
     try {
       const links = await fetchJson(`${API_BASE}/api/items/${itemId}/links`);
       const grouped = { ...emptyLinks };
@@ -2111,26 +2176,32 @@ export default function App() {
         grouped[rel].push(link.target_key);
       });
       detail.links = grouped;
+      detail.linkTitles = await loadLinkTitles(grouped);
     } catch (err) {
       console.warn('links fetch failed', err);
     }
     return detail;
   }, []);
 
-  const openDetail = async (item) => {
-    setSelectedItem(item);
-    setView('detail');
-    setIsLoadingDetail(true);
-    try {
-      const full = await loadItemDetail(item.id);
-      setSelectedItem(full);
-    } catch (err) {
-      console.error(err);
-      showApiError(err, '詳細の取得に失敗しました');
-    } finally {
-      setIsLoadingDetail(false);
-    }
-  };
+  const openDetailById = useCallback(
+    async (itemId, title) => {
+      setSelectedItem(createPlaceholderItem(itemId, title || itemId));
+      setView('detail');
+      setIsLoadingDetail(true);
+      try {
+        const full = await loadItemDetail(itemId);
+        setSelectedItem(full);
+      } catch (err) {
+        console.error(err);
+        showApiError(err, '詳細の取得に失敗しました');
+      } finally {
+        setIsLoadingDetail(false);
+      }
+    },
+    [loadItemDetail],
+  );
+
+  const openDetail = (item) => openDetailById(item.id, item.title);
 
   const openNewItem = () => {
     const now = new Date().toISOString().slice(0, 10);
@@ -2291,6 +2362,7 @@ export default function App() {
           onModelize={handleModelize}
           onClone={handleClone}
           onDelete={handleDelete}
+          onOpenLink={openDetailById}
           isLoading={isLoadingDetail}
         />
       )}
