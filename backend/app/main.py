@@ -63,7 +63,7 @@ def create_app(
     def get_speaker_repo() -> SpeakerRepo:
         return SpeakerRepo(app.state.db)
 
-    @app.get("/api/health")
+    @app.get("/health")
     def health() -> Dict[str, str]:
         try:
             app.state.db.health_check()
@@ -71,7 +71,7 @@ def create_app(
         except Exception as exc:  # pragma: no cover - defensive path
             raise HTTPException(status_code=503, detail="database_error") from exc
 
-    @app.get("/api/items/{item_id}")
+    @app.get("/items/{item_id}")
     def get_item(
         item_id: str,
         items: ItemsRepo = Depends(get_items_repo),
@@ -86,7 +86,7 @@ def create_app(
         item.update({"payload": payload, "tags": item_tags})
         return {"item": item}
 
-    @app.post("/api/items")
+    @app.post("/items")
     def create_item(
         payload: Dict[str, Any],
         items: ItemsRepo = Depends(get_items_repo),
@@ -113,7 +113,7 @@ def create_app(
         tags.replace_item_tags(item_id, payload.get("tags", []))
         return {"item_id": item_id}
 
-    @app.put("/api/items/{item_id}")
+    @app.put("/items/{item_id}")
     def update_item(
         item_id: str,
         payload: Dict[str, Any],
@@ -139,20 +139,20 @@ def create_app(
         tags.replace_item_tags(item_id, payload.get("tags", []))
         return {"ok": True}
 
-    @app.delete("/api/items/{item_id}")
+    @app.delete("/items/{item_id}")
     def delete_item(item_id: str, items: ItemsRepo = Depends(get_items_repo)) -> Dict[str, bool]:
         if not items.get_item(item_id):
             raise HTTPException(status_code=404, detail="item_not_found")
         items.soft_delete(item_id)
         return {"ok": True}
 
-    @app.get("/api/items/{item_id}/links")
+    @app.get("/items/{item_id}/links")
     def get_links(
         item_id: str, links: LinksRepo = Depends(get_links_repo)
     ) -> Dict[str, Any]:
         return {"links": links.list_links_for_item(item_id, include_targets=True)}
 
-    @app.post("/api/items/{item_id}/links")
+    @app.post("/items/{item_id}/links")
     def create_link(
         item_id: str,
         body: Dict[str, Any],
@@ -177,12 +177,12 @@ def create_app(
         )
         return {"link_id": link_id}
 
-    @app.delete("/api/links/{link_id}")
+    @app.delete("/links/{link_id}")
     def delete_link(link_id: str, links: LinksRepo = Depends(get_links_repo)) -> Dict[str, bool]:
         links.delete_link(link_id)
         return {"ok": True}
 
-    @app.get("/api/suggest/tags")
+    @app.get("/suggest/tags")
     def suggest_tags(
         q: str = Query("", description="Prefix query"),
         limit: int = Query(20, ge=1, le=100),
@@ -190,7 +190,7 @@ def create_app(
     ) -> Dict[str, List[str]]:
         return {"tags": tags.suggest_tags(q, limit=limit)}
 
-    @app.get("/api/suggest/domains")
+    @app.get("/suggest/domains")
     def suggest_domains(
         q: str = Query("", description="Prefix query"),
         limit: int = Query(20, ge=1, le=100),
@@ -198,11 +198,11 @@ def create_app(
     ) -> Dict[str, List[str]]:
         return {"domains": search.suggest_domains(q, limit=limit)}
 
-    @app.get("/api/speakers")
+    @app.get("/speakers")
     def list_speakers(repo: SpeakerRepo = Depends(get_speaker_repo)) -> Dict[str, Any]:
         return {"speakers": repo.list_speakers()}
 
-    @app.post("/api/speakers")
+    @app.post("/speakers")
     def create_speaker(
         body: Dict[str, Any],
         repo: SpeakerRepo = Depends(get_speaker_repo),
@@ -217,7 +217,7 @@ def create_app(
         )
         return {"speaker_id": speaker_id}
 
-    @app.put("/api/speakers/{speaker_id}")
+    @app.put("/speakers/{speaker_id}")
     def update_speaker(
         speaker_id: int,
         body: Dict[str, Any],
@@ -234,7 +234,7 @@ def create_app(
         )
         return {"ok": True}
 
-    @app.delete("/api/speakers/{speaker_id}")
+    @app.delete("/speakers/{speaker_id}")
     def delete_speaker(
         speaker_id: int,
         repo: SpeakerRepo = Depends(get_speaker_repo),
@@ -242,7 +242,7 @@ def create_app(
         repo.delete_speaker(speaker_id)
         return {"ok": True}
 
-    @app.get("/api/search")
+    @app.get("/search")
     def search_items(
         q: Optional[str] = None,
         kinds: Optional[str] = None,
@@ -266,7 +266,7 @@ def create_app(
         )
         return results
 
-    @app.post("/api/import/jobs")
+    @app.post("/import/jobs")
     def create_import_job(
         body: Dict[str, Any],
         repo: ImportRepo = Depends(get_import_repo),
@@ -346,7 +346,7 @@ def create_app(
                 )
         return {"job_id": job_id}
 
-    @app.get("/api/import/jobs/{job_id}")
+    @app.get("/import/jobs/{job_id}")
     def get_import_job(
         job_id: str,
         repo: ImportRepo = Depends(get_import_repo),
@@ -384,7 +384,7 @@ def create_app(
         job["source"] = json.loads(job.get("source_json", "{}"))
         return {"job": job, "candidates": parsed_candidates, "stable_key_matches": stable_key_matches}
 
-    @app.put("/api/import/jobs/{job_id}/candidates/{candidate_id}")
+    @app.put("/import/jobs/{job_id}/candidates/{candidate_id}")
     def update_candidate(
         job_id: str,
         candidate_id: str,
@@ -402,7 +402,7 @@ def create_app(
         )
         return {"ok": True}
 
-    @app.post("/api/import/jobs/{job_id}/commit")
+    @app.post("/import/jobs/{job_id}/commit")
     def commit_job(
         job_id: str,
         repo: ImportRepo = Depends(get_import_repo),
@@ -518,7 +518,7 @@ def create_app(
             "warnings": [],
         }
 
-    @app.post("/api/import/jobs/{job_id}/discard")
+    @app.post("/import/jobs/{job_id}/discard")
     def discard_job(job_id: str, repo: ImportRepo = Depends(get_import_repo)) -> Dict[str, bool]:
         if not repo.get_job(job_id):
             raise HTTPException(status_code=404, detail="job_not_found")
