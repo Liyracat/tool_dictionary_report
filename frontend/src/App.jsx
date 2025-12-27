@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 const relOptions = ['born_from', 'related', 'contradicts', 'supersedes'];
 const kinds = ['knowledge', 'value', 'summary', 'model', 'decision', 'term', 'correction'];
