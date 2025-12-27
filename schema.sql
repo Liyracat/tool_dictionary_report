@@ -331,3 +331,12 @@ CREATE TABLE IF NOT EXISTS import_id_map (
 
 CREATE INDEX IF NOT EXISTS idx_import_id_map_item
   ON import_id_map(item_id);
+
+-- =========================================================
+-- Raw JSON Store (work in progress)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS raw_json_store (
+  raw_json_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  raw_json_text TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
