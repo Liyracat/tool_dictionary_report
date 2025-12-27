@@ -676,7 +676,7 @@ class RawJsonRepo:
     def list_raw_json(self) -> List[Dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT raw_json_id, created_at FROM raw_json_store ORDER BY created_at DESC, raw_json_id DESC"
+                "SELECT raw_json_id, created_at FROM raw_json_store ORDER BY created_at ASC, raw_json_id ASC"
             ).fetchall()
             return [row_to_dict(r) for r in rows]
 
