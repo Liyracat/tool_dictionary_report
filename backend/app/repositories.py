@@ -645,6 +645,19 @@ class ImportRepo:
 class RawJsonRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
+        self._ensure_table()
+
+    def _ensure_table(self) -> None:
+        with self.db.transaction() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS raw_json_store (
+                  raw_json_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                  raw_json_text TEXT NOT NULL,
+                  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                )
+                """
+            )
 
     def create_raw_json(self, raw_json_text: str, created_at: Optional[str] = None) -> int:
         with self.db.transaction() as cur:
