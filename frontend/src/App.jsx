@@ -179,6 +179,29 @@ const parseEvidence = (value) => {
   }
 };
 
+const parseJsonText = (text) => {
+  const trimmed = text.trim();
+  if (!trimmed) return { error: new Error('empty') };
+  const attemptParse = (value) => {
+    try {
+      return { value: JSON.parse(value), normalized: value };
+    } catch (err) {
+      return { error: err };
+    }
+  };
+  const direct = attemptParse(trimmed);
+  if (direct.value !== undefined) return direct;
+  const normalized = trimmed
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t');
+  if (normalized !== trimmed) {
+    const retry = attemptParse(normalized);
+    if (retry.value !== undefined) return retry;
+  }
+  return direct;
+};
+
 const toDisplayItem = (raw) => {
   if (!raw) return null;
   const tags = normalizeTags(raw.tags);
@@ -1595,15 +1618,47 @@ function ImportWizard({ onClose }) {
 
   const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
+  const createFallbackUuid = () => {
+    const bytes = new Uint8Array(16);
+    if (crypto?.getRandomValues) {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < bytes.length; i += 1) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const toHex = (value) => value.toString(16).padStart(2, '0');
+    return [
+      ...bytes.slice(0, 4),
+      '-',
+      ...bytes.slice(4, 6),
+      '-',
+      ...bytes.slice(6, 8),
+      '-',
+      ...bytes.slice(8, 10),
+      '-',
+      ...bytes.slice(10, 16),
+    ]
+      .map((entry) => (typeof entry === 'number' ? toHex(entry) : entry))
+      .join('');
+  };
+
+  const getRandomUuid = () => {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+    return createFallbackUuid();
+  };
+
   const normalizeChunkTmpId = (value) => {
-    if (!value) return crypto.randomUUID();
+    if (!value) return getRandomUuid();
     const str = String(value).trim();
     if (str.startsWith('chunk-')) {
       const raw = str.slice('chunk-'.length);
       if (isUuid(raw)) return raw;
     }
     if (isUuid(str)) return str;
-    return crypto.randomUUID();
+    return getRandomUuid();
   };
 
   const normalizeMessageIdList = (value) =>
@@ -1630,7 +1685,23 @@ function ImportWizard({ onClose }) {
     }
     setIsLoadingInput(true);
     try {
-      const parsedInput = JSON.parse(text);
+      const parsedResult = parseJsonText(text);
+      if (parsedResult.error) {
+        throw parsedResult.error;
+      }
+      let parsedInput = parsedResult.value;
+      let normalizedText = parsedResult.normalized || text;
+      if (typeof parsedInput === 'string') {
+        const nestedResult = parseJsonText(parsedInput);
+        if (nestedResult.error) {
+          throw nestedResult.error;
+        }
+        parsedInput = nestedResult.value;
+        normalizedText = nestedResult.normalized || normalizedText;
+      }
+      if (normalizedText !== text) {
+        setInputRawJson(normalizedText);
+      }
       const inputChunks = Array.isArray(parsedInput.chunks) ? parsedInput.chunks : [];
       if (!inputChunks.length) {
         alert('chunks が見つかりませんでした');
@@ -1654,6 +1725,7 @@ function ImportWizard({ onClose }) {
       setActiveRawJsonId(rawJsonId ?? null);
       return true;
     } catch (err) {
+      console.error(err);
       if (allowDeletePrompt && rawJsonId) {
         const shouldDelete = window.confirm(
           'JSON形式に不備があるため表示できません。削除しますか？',
