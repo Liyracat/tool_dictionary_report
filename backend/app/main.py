@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .db import Database, ensure_schema, default_schema_path
 from .import_utils import compute_digest, compute_thread_id
-from .repositories import ImportRepo, ItemsRepo, LinksRepo, SearchRepo, SpeakerRepo, TagsRepo
+from .repositories import ImportRepo, ItemsRepo, LinksRepo, RawJsonRepo, SearchRepo, SpeakerRepo, TagsRepo
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -62,6 +62,9 @@ def create_app(
 
     def get_speaker_repo() -> SpeakerRepo:
         return SpeakerRepo(app.state.db)
+
+    def get_raw_json_repo() -> RawJsonRepo:
+        return RawJsonRepo(app.state.db)
 
     @app.get("/health")
     def health() -> Dict[str, str]:
@@ -265,6 +268,44 @@ def create_app(
             offset=offset,
         )
         return results
+
+    @app.get("/raw-json")
+    def list_raw_json(repo: RawJsonRepo = Depends(get_raw_json_repo)) -> Dict[str, Any]:
+        return {"entries": repo.list_raw_json()}
+
+    @app.post("/raw-json")
+    def create_raw_json(body: Dict[str, Any], repo: RawJsonRepo = Depends(get_raw_json_repo)) -> Dict[str, Any]:
+        raw_json_text = body.get("raw_json_text")
+        if not raw_json_text:
+            raise HTTPException(status_code=400, detail="missing_raw_json_text")
+        raw_json_id = repo.create_raw_json(raw_json_text)
+        return {"raw_json_id": raw_json_id}
+
+    @app.get("/raw-json/{raw_json_id}")
+    def get_raw_json(raw_json_id: int, repo: RawJsonRepo = Depends(get_raw_json_repo)) -> Dict[str, Any]:
+        entry = repo.get_raw_json(raw_json_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="raw_json_not_found")
+        return {"entry": entry}
+
+    @app.put("/raw-json/{raw_json_id}")
+    def update_raw_json(
+        raw_json_id: int, body: Dict[str, Any], repo: RawJsonRepo = Depends(get_raw_json_repo)
+    ) -> Dict[str, Any]:
+        if not repo.get_raw_json(raw_json_id):
+            raise HTTPException(status_code=404, detail="raw_json_not_found")
+        raw_json_text = body.get("raw_json_text")
+        if raw_json_text is None:
+            raise HTTPException(status_code=400, detail="missing_raw_json_text")
+        repo.update_raw_json(raw_json_id, raw_json_text)
+        return {"ok": True}
+
+    @app.delete("/raw-json/{raw_json_id}")
+    def delete_raw_json(raw_json_id: int, repo: RawJsonRepo = Depends(get_raw_json_repo)) -> Dict[str, Any]:
+        if not repo.get_raw_json(raw_json_id):
+            raise HTTPException(status_code=404, detail="raw_json_not_found")
+        repo.delete_raw_json(raw_json_id)
+        return {"ok": True}
 
     @app.post("/import/jobs")
     def create_import_job(

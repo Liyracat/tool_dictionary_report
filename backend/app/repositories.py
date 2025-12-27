@@ -642,10 +642,56 @@ class ImportRepo:
             )
 
 
+class RawJsonRepo:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def create_raw_json(self, raw_json_text: str, created_at: Optional[str] = None) -> int:
+        with self.db.transaction() as cur:
+            if created_at:
+                cur.execute(
+                    "INSERT INTO raw_json_store(raw_json_text, created_at) VALUES (?, ?)",
+                    (raw_json_text, created_at),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO raw_json_store(raw_json_text, created_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                    (raw_json_text,),
+                )
+            return int(cur.lastrowid)
+
+    def list_raw_json(self) -> List[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT raw_json_id, created_at FROM raw_json_store ORDER BY created_at DESC, raw_json_id DESC"
+            ).fetchall()
+            return [row_to_dict(r) for r in rows]
+
+    def get_raw_json(self, raw_json_id: int) -> Optional[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT raw_json_id, raw_json_text, created_at FROM raw_json_store WHERE raw_json_id = ?",
+                (raw_json_id,),
+            ).fetchone()
+            return row_to_dict(row) if row else None
+
+    def update_raw_json(self, raw_json_id: int, raw_json_text: str) -> None:
+        with self.db.transaction() as cur:
+            cur.execute(
+                "UPDATE raw_json_store SET raw_json_text = ? WHERE raw_json_id = ?",
+                (raw_json_text, raw_json_id),
+            )
+
+    def delete_raw_json(self, raw_json_id: int) -> None:
+        with self.db.transaction() as cur:
+            cur.execute("DELETE FROM raw_json_store WHERE raw_json_id = ?", (raw_json_id,))
+
+
 __all__ = [
     "ItemsRepo",
     "TagsRepo",
     "LinksRepo",
     "SearchRepo",
     "ImportRepo",
+    "RawJsonRepo",
 ]
