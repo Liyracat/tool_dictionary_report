@@ -304,6 +304,38 @@ select {
   background: #fff;
 }
 
+.raw-json-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.raw-json-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.raw-json-row:hover {
+  background: #f8fafc;
+}
+
+.raw-json-row.active {
+  border-color: #38bdf8;
+  background: #f0f9ff;
+}
+
+.raw-json-id {
+  font-weight: 600;
+}
+
 .detail-body .body-text {
   background: #f9fafb;
   border-radius: 12px;

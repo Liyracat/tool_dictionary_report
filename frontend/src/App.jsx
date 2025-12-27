@@ -1283,6 +1283,7 @@ function InputJsonGenerator({ onClose }) {
   const [messagesCount, setMessagesCount] = useState(0);
   const [speakers, setSpeakers] = useState([]);
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
+  const [isSavingJson, setIsSavingJson] = useState(false);
 
   const loadSpeakers = useCallback(async () => {
     try {
@@ -1377,6 +1378,26 @@ function InputJsonGenerator({ onClose }) {
     URL.revokeObjectURL(url);
   };
 
+  const saveJson = async () => {
+    if (!outputText) {
+      alert('先に入力 JSON を生成してください');
+      return;
+    }
+    setIsSavingJson(true);
+    try {
+      const data = await fetchJson(`${API_BASE}/api/raw-json`, {
+        method: 'POST',
+        body: JSON.stringify({ raw_json_text: outputText }),
+      });
+      alert(`JSON を保存しました (ID: ${data.raw_json_id})`);
+    } catch (err) {
+      console.error(err);
+      showApiError(err, 'JSON の保存に失敗しました');
+    } finally {
+      setIsSavingJson(false);
+    }
+  };
+
   return (
     <div className="panel">
       <div className="panel-header">
@@ -1409,6 +1430,9 @@ function InputJsonGenerator({ onClose }) {
             </button>
             <button className="ghost" onClick={downloadJson}>
               JSON をダウンロード
+            </button>
+            <button className="ghost" onClick={saveJson} disabled={isSavingJson}>
+              JSON を保存
             </button>
             {messagesCount > 0 && <span className="muted small">{messagesCount} messages</span>}
           </div>
@@ -1521,6 +1545,9 @@ function ImportWizard({ onClose }) {
   const [draftItem, setDraftItem] = useState(createDefaultItem);
   const [isLoadingInput, setIsLoadingInput] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [rawJsonEntries, setRawJsonEntries] = useState([]);
+  const [isLoadingRawJson, setIsLoadingRawJson] = useState(false);
+  const [activeRawJsonId, setActiveRawJsonId] = useState(null);
   const messageListRef = useRef(null);
 
   const selectedChunk = chunks[selectedChunkIndex] || null;
@@ -1545,8 +1572,26 @@ function ImportWizard({ onClose }) {
     setChunks([]);
     setSelectedChunkIndex(0);
     setLineStates({});
+    setActiveRawJsonId(null);
     resetChunkState();
   };
+
+  const loadRawJsonEntries = useCallback(async () => {
+    setIsLoadingRawJson(true);
+    try {
+      const data = await fetchJson(`${API_BASE}/api/raw-json`);
+      setRawJsonEntries(data.entries || []);
+    } catch (err) {
+      console.error(err);
+      showApiError(err, '保存済み JSON の取得に失敗しました');
+    } finally {
+      setIsLoadingRawJson(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRawJsonEntries();
+  }, [loadRawJsonEntries]);
 
   const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -1578,19 +1623,19 @@ function ImportWizard({ onClose }) {
   const appendBodyText = (currentValue, messageText) =>
     currentValue ? `${currentValue}\n${messageText}` : messageText;
 
-  const startImport = () => {
-    if (!inputRawJson.trim()) {
+  const parseInputJson = async (text, { rawJsonId, allowDeletePrompt } = {}) => {
+    if (!text.trim()) {
       alert('入力 JSON を貼り付けてください');
-      return;
+      return false;
     }
     setIsLoadingInput(true);
     try {
-      const parsedInput = JSON.parse(inputRawJson);
+      const parsedInput = JSON.parse(text);
       const inputChunks = Array.isArray(parsedInput.chunks) ? parsedInput.chunks : [];
       if (!inputChunks.length) {
         alert('chunks が見つかりませんでした');
         setIsLoadingInput(false);
-        return;
+        return false;
       }
       const mappedChunks = inputChunks.map((chunk) => {
         const chunkTmpId = normalizeChunkTmpId(
@@ -1606,10 +1651,113 @@ function ImportWizard({ onClose }) {
       setSelectedChunkIndex(0);
       setLineStates({});
       resetChunkState();
+      setActiveRawJsonId(rawJsonId ?? null);
+      return true;
     } catch (err) {
+      if (allowDeletePrompt && rawJsonId) {
+        const shouldDelete = window.confirm(
+          'JSON形式に不備があるため表示できません。削除しますか？',
+        );
+        if (shouldDelete) {
+          try {
+            await fetchJson(`${API_BASE}/api/raw-json/${rawJsonId}`, { method: 'DELETE' });
+            await loadRawJsonEntries();
+            setActiveRawJsonId(null);
+            alert('保存済み JSON を削除しました。');
+          } catch (deleteErr) {
+            console.error(deleteErr);
+            showApiError(deleteErr, '削除に失敗しました');
+          }
+        }
+        return false;
+      }
       alert('入力 JSON のパースに失敗しました');
+      return false;
     } finally {
       setIsLoadingInput(false);
+    }
+  };
+
+  const startImport = async () => {
+    await parseInputJson(inputRawJson, { rawJsonId: activeRawJsonId, allowDeletePrompt: false });
+  };
+
+  const handleSelectRawJson = async (entryId) => {
+    try {
+      const data = await fetchJson(`${API_BASE}/api/raw-json/${entryId}`);
+      const rawText = data.entry?.raw_json_text || '';
+      setInputRawJson(rawText);
+      setActiveRawJsonId(entryId);
+      await parseInputJson(rawText, { rawJsonId: entryId, allowDeletePrompt: true });
+    } catch (err) {
+      console.error(err);
+      showApiError(err, '保存済み JSON の取得に失敗しました');
+    }
+  };
+
+  const buildInputJsonText = (chunkList) => {
+    const normalizedChunks = chunkList.map((chunk) => ({
+      chunk_tmp_id: chunk.chunkTmpId,
+      messages: (chunk.messages || []).map((message) => ({
+        message_id: message.message_id,
+        speaker: message.speaker,
+        role: message.role ?? null,
+        canonical_role: message.canonical_role ?? 'unknown',
+        content: Array.isArray(message.content) ? message.content : coerceContentLines(message.content),
+      })),
+    }));
+    return JSON.stringify({ input_version: '1.1', chunks: normalizedChunks }, null, 2);
+  };
+
+  const removeChunkState = (removeIndex) => {
+    const nextChunks = chunks.filter((_, idx) => idx !== removeIndex);
+    setChunks(nextChunks);
+    setLineStates((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([idx, value]) => {
+        const numeric = Number(idx);
+        if (Number.isNaN(numeric)) return;
+        if (numeric < removeIndex) {
+          next[numeric] = value;
+        } else if (numeric > removeIndex) {
+          next[numeric - 1] = value;
+        }
+      });
+      return next;
+    });
+    if (!nextChunks.length) {
+      resetAll();
+      return;
+    }
+    setSelectedChunkIndex(Math.min(removeIndex, nextChunks.length - 1));
+    resetChunkState();
+  };
+
+  const updateRawJsonStore = async (removeIndex) => {
+    if (!activeRawJsonId) return;
+    const remainingChunks = chunks.filter((_, idx) => idx !== removeIndex);
+    if (!remainingChunks.length) {
+      await fetchJson(`${API_BASE}/api/raw-json/${activeRawJsonId}`, { method: 'DELETE' });
+      await loadRawJsonEntries();
+      setActiveRawJsonId(null);
+      return;
+    }
+    const updatedText = buildInputJsonText(remainingChunks);
+    await fetchJson(`${API_BASE}/api/raw-json/${activeRawJsonId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ raw_json_text: updatedText }),
+    });
+    setInputRawJson(updatedText);
+  };
+
+  const finalizeChunk = async () => {
+    try {
+      await updateRawJsonStore(selectedChunkIndex);
+    } catch (err) {
+      console.error(err);
+      showApiError(err, '保存済み JSON の更新に失敗しました');
+    } finally {
+      removeChunkState(selectedChunkIndex);
     }
   };
 
@@ -1654,22 +1802,12 @@ function ImportWizard({ onClose }) {
     }));
   };
 
-  const goToNextChunk = () => {
-    const nextIndex = selectedChunkIndex + 1;
-    if (nextIndex < chunks.length) {
-      setSelectedChunkIndex(nextIndex);
-      resetChunkState();
-      return;
-    }
-    resetAll();
-  };
-
-  const handleSkipChunk = () => {
+  const handleSkipChunk = async () => {
     if (items.length) {
       alert('このchunkには item が存在します。すべて削除してから SKIP してください。');
       return;
     }
-    goToNextChunk();
+    await finalizeChunk();
   };
 
   const handleSaveItem = () => {
@@ -1773,7 +1911,7 @@ function ImportWizard({ onClose }) {
         });
       }
       alert(`保存完了: ${items.length} item を登録しました。`);
-      goToNextChunk();
+      await finalizeChunk();
     } catch (err) {
       console.error(err);
       showApiError(err, 'コミットに失敗しました');
@@ -1810,6 +1948,31 @@ function ImportWizard({ onClose }) {
                 JSON を読み込む
               </button>
               {isLoadingInput && <span className="muted small">読み込み中...</span>}
+            </div>
+          </Collapsible>
+          <Collapsible title="保存済み JSON" defaultOpen={false}>
+            <div className="actions">
+              <button className="ghost" onClick={loadRawJsonEntries} disabled={isLoadingRawJson}>
+                一覧を更新
+              </button>
+              {isLoadingRawJson && <span className="muted small">読み込み中...</span>}
+            </div>
+            <div className="raw-json-list">
+              {rawJsonEntries.length ? (
+                rawJsonEntries.map((entry) => (
+                  <button
+                    key={entry.raw_json_id}
+                    type="button"
+                    className={`raw-json-row ${activeRawJsonId === entry.raw_json_id ? 'active' : ''}`}
+                    onClick={() => handleSelectRawJson(entry.raw_json_id)}
+                  >
+                    <span className="raw-json-id">ID {entry.raw_json_id}</span>
+                    <span className="muted small">{entry.created_at}</span>
+                  </button>
+                ))
+              ) : (
+                <p className="muted small">保存済み JSON はありません。</p>
+              )}
             </div>
           </Collapsible>
 
