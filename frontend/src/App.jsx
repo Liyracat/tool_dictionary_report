@@ -151,6 +151,32 @@ const applyPayloadDefaults = (schemaId, payload) => ({
   ...(payload ?? {}),
 });
 
+const pruneStringList = (value) => (Array.isArray(value) ? value.filter((item) => item !== '') : []);
+
+const prunePayloadEmptyLines = (schemaId, payload) => {
+  const config = payloadSchemaConfig[schemaId] || [];
+  const nextPayload = { ...(payload ?? {}) };
+  config.forEach((field) => {
+    if (field.type === 'stringList') {
+      nextPayload[field.key] = pruneStringList(nextPayload[field.key]);
+      return;
+    }
+    if (field.type !== 'objectList') return;
+    const entries = Array.isArray(nextPayload[field.key]) ? nextPayload[field.key] : [];
+    nextPayload[field.key] = entries.map((entry) => {
+      if (!entry || typeof entry !== 'object') return entry;
+      const nextEntry = { ...entry };
+      field.fields?.forEach((nestedField) => {
+        if (nestedField.type === 'stringList') {
+          nextEntry[nestedField.key] = pruneStringList(nextEntry[nestedField.key]);
+        }
+      });
+      return nextEntry;
+    });
+  });
+  return nextPayload;
+};
+
 const coerceContentLines = (content) => {
   if (Array.isArray(content)) return content;
   if (content == null) return [];
@@ -354,11 +380,11 @@ function StringListInput({ label, value = [], onChange, options }) {
   const updateEntry = (index, nextValue) => {
     const next = [...entries];
     next[index] = nextValue;
-    onChange(next.filter((item) => item !== ''));
+    onChange(next);
   };
-  const addEntry = () => onChange([...value, '']);
+  const addEntry = () => onChange([...entries, '']);
   const removeEntry = (index) => {
-    const next = [...value];
+    const next = [...entries];
     next.splice(index, 1);
     onChange(next);
   };
@@ -1967,7 +1993,7 @@ function ImportWizard({ onClose }) {
           stable_key: item.stableKey || null,
           domain: item.domain || null,
           confidence: item.confidence ?? 1.0,
-          payload: applyPayloadDefaults(item.schemaId, item.payload),
+          payload: applyPayloadDefaults(item.schemaId, prunePayloadEmptyLines(item.schemaId, item.payload)),
           evidence: parseEvidence(item.evidenceText),
           tags: (item.tagsText || '')
             .split(',')
