@@ -42,8 +42,7 @@ header p {
 }
 
 .panel-header {
-  display: flex;
-  justify-content: space-between;
+  display: flow-root;
   align-items: center;
   gap: 1rem;
 }
@@ -60,11 +59,13 @@ header p {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .actions.column {
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-end;
+  justify-content: flex-end;
 }
 
 button {
@@ -669,8 +670,8 @@ textarea {
   margin-top: 1rem;
 }
 
-.payload-grid {
-  display: grid;
+.payload-flow {
+  display: flow;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.75rem;
 }

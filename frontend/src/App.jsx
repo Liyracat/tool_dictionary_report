@@ -61,8 +61,8 @@ const payloadSchemaConfig = {
   ],
   'summary/discussion.v1': [
     { key: 'context', label: 'context - 背景情報', type: 'string' },
-    { key: 'points', label: 'points - ポイント', type: 'stringList' },
     { key: 'conclusion', label: 'conclusion - 結論', type: 'string' },
+    { key: 'points', label: 'points - ポイント', type: 'stringList' },
     { key: 'open_questions', label: 'open_questions - 自由回答形式の質問', type: 'stringList' },
   ],
   'summary/compare.v1': [
@@ -468,7 +468,7 @@ function PayloadEditor({ schemaId, value, onChange }) {
   };
 
   return (
-    <div className="payload-grid">
+    <div className="payload-flow">
       {config.map((field) => {
         if (field.type === 'string') {
           return (
@@ -755,6 +755,25 @@ function ItemDetail({
           <button className="ghost" onClick={onBack}>
             ← 戻る
           </button>
+          <div className="actions column">
+            <button className="primary" onClick={onEdit}>
+              編集
+            </button>
+            <button className="ghost" onClick={onAddLink}>
+              リンク追加
+            </button>
+            {item.kind === 'summary' && (
+              <button className="ghost" onClick={onModelize}>
+                モデル化
+              </button>
+            )}
+            <button className="ghost" onClick={onClone}>
+              複製
+            </button>
+            <button className="ghost danger" onClick={onDelete}>
+              削除
+            </button>
+          </div>
           <h2>{item.title}</h2>
           <p className="muted small">
             {item.kind} / {item.schemaId} / {item.domain} / 更新 {item.updatedAt}
@@ -767,25 +786,6 @@ function ItemDetail({
               タグ編集
             </button>
           </div>
-        </div>
-        <div className="actions column">
-          <button className="primary" onClick={onEdit}>
-            編集
-          </button>
-          <button className="ghost" onClick={onAddLink}>
-            リンク追加
-          </button>
-          {item.kind === 'summary' && (
-            <button className="ghost" onClick={onModelize}>
-              モデル化
-            </button>
-          )}
-          <button className="ghost" onClick={onClone}>
-            複製
-          </button>
-          <button className="ghost danger" onClick={onDelete}>
-            削除
-          </button>
         </div>
       </div>
 
@@ -907,7 +907,7 @@ function ItemForm({ value, onChange, stableKeySuggested }) {
       </label>
       <label className="full">
         body - 本文
-        <textarea rows={4} value={value.body} onChange={(e) => updateField('body', e.target.value)} />
+        <textarea rows={20} value={value.body} onChange={(e) => updateField('body', e.target.value)} />
       </label>
       <label>
         domain - 文脈・用途区分・領域
@@ -2001,9 +2001,11 @@ function ImportWizard({ onClose }) {
           <h2>Import</h2>
           <p className="muted small">入力 JSON を読み込み、chunk と item を手動で登録します。</p>
         </div>
-        <button className="ghost" onClick={onClose}>
-          閉じる
-        </button>
+        <div className="actions">
+          <button className="ghost" onClick={onClose}>
+            閉じる
+          </button>
+        </div>
       </div>
 
       <div className="import-layout">
@@ -2130,73 +2132,74 @@ function ImportWizard({ onClose }) {
             <p className="muted">入力 JSON を読み込むと chunk が表示されます。</p>
           )}
 
-          <h4>chunk 情報</h4>
-          <div className="form-grid">
-            <label>
-              source_type - 入力情報元
-              <input
-                type="text"
-                value={chunkForm.source_type}
-                onChange={(e) => setChunkForm({ ...chunkForm, source_type: e.target.value })}
-              />
-            </label>
-            <label>
-              hint - chunk内の概要
-              <input
-                type="text"
-                value={chunkForm.hint}
-                onChange={(e) => setChunkForm({ ...chunkForm, hint: e.target.value })}
-              />
-            </label>
-            <label className="full">
-              message_ids - 有効なメッセージID（カンマ区切り）
-              <input
-                type="text"
-                value={chunkForm.locatorMessageIds}
-                onChange={(e) => setChunkForm({ ...chunkForm, locatorMessageIds: e.target.value })}
-              />
-            </label>
-            <label>
-              turn_range.start - 話題の開始メッセージID
-              <input
-                type="text"
-                value={chunkForm.turnRangeStart}
-                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeStart: e.target.value })}
-              />
-            </label>
-            <label>
-              turn_range.end - 話題の終了メッセージID
-              <input
-                type="text"
-                value={chunkForm.turnRangeEnd}
-                onChange={(e) => setChunkForm({ ...chunkForm, turnRangeEnd: e.target.value })}
-              />
-            </label>
-            <label className="full">
-              export_path - 原文保存元
-              <input
-                type="text"
-                value={chunkForm.exportPath}
-                onChange={(e) => setChunkForm({ ...chunkForm, exportPath: e.target.value })}
-              />
-            </label>
-            <label>
-              time_range.start - 開始時刻
-              <input
-                type="text"
-                value={chunkForm.timeRangeStart}
-                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeStart: e.target.value })}
-              />
-            </label>
-            <label>
-              time_range.end - 終了時刻
-              <input
-                type="text"
-                value={chunkForm.timeRangeEnd}
-                onChange={(e) => setChunkForm({ ...chunkForm, timeRangeEnd: e.target.value })}
-              />
-            </label>
-          </div>
+          <Collapsible title="chunk 情報" defaultOpen={false}>
+            <div className="form-grid">
+              <label>
+                source_type - 入力情報元
+                <input
+                  type="text"
+                  value={chunkForm.source_type}
+                  onChange={(e) => setChunkForm({ ...chunkForm, source_type: e.target.value })}
+                />
+              </label>
+              <label>
+                hint - chunk内の概要
+                <input
+                  type="text"
+                  value={chunkForm.hint}
+                  onChange={(e) => setChunkForm({ ...chunkForm, hint: e.target.value })}
+                />
+              </label>
+              <label className="full">
+                message_ids - 有効なメッセージID（カンマ区切り）
+                <input
+                  type="text"
+                  value={chunkForm.locatorMessageIds}
+                  onChange={(e) => setChunkForm({ ...chunkForm, locatorMessageIds: e.target.value })}
+                />
+              </label>
+              <label>
+                turn_range.start - 話題の開始メッセージID
+                <input
+                  type="text"
+                  value={chunkForm.turnRangeStart}
+                  onChange={(e) => setChunkForm({ ...chunkForm, turnRangeStart: e.target.value })}
+                />
+              </label>
+              <label>
+                turn_range.end - 話題の終了メッセージID
+                <input
+                  type="text"
+                  value={chunkForm.turnRangeEnd}
+                  onChange={(e) => setChunkForm({ ...chunkForm, turnRangeEnd: e.target.value })}
+                />
+              </label>
+              <label className="full">
+                export_path - 原文保存元
+                <input
+                  type="text"
+                  value={chunkForm.exportPath}
+                  onChange={(e) => setChunkForm({ ...chunkForm, exportPath: e.target.value })}
+                />
+              </label>
+              <label>
+                time_range.start - 開始時刻
+                <input
+                  type="text"
+                  value={chunkForm.timeRangeStart}
+                  onChange={(e) => setChunkForm({ ...chunkForm, timeRangeStart: e.target.value })}
+                />
+              </label>
+              <label>
+                time_range.end - 終了時刻
+                <input
+                  type="text"
+                  value={chunkForm.timeRangeEnd}
+                  onChange={(e) => setChunkForm({ ...chunkForm, timeRangeEnd: e.target.value })}
+                />
+              </label>
+            </div>
+          </Collapsible>
         </div>
 
         <div className="import-right">
@@ -2286,7 +2289,7 @@ function ImportWizard({ onClose }) {
             <label className="full">
               body - 本文
               <textarea
-                rows={3}
+                rows={20}
                 value={draftItem.body}
                 onChange={(e) => setDraftItem({ ...draftItem, body: e.target.value })}
               />
